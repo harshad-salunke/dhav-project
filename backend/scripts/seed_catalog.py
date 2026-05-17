@@ -13,7 +13,7 @@ from firebase_admin import credentials, db
 SERVICE_ACCOUNT_PATH = os.getenv(
     "FIREBASE_SERVICE_ACCOUNT", "backend/firebase-service-account.json"
 )
-DATABASE_URL = "https://dhav-quick-commerce-default-rtdb.asia-southeast1.firebasedatabase.app"
+DATABASE_URL = "https://dhav-quick-commerce-default-rtdb.firebaseio.com"
 
 CATALOG_ITEMS = [
     # Grains
