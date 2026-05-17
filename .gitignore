@@ -1,0 +1,50 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Flutter
+*/build/
+*/.dart_tool/
+*/.packages
+*/.pub-cache/
+*/pubspec.lock
+*.iml
+*.ipr
+*.iws
+
+# Firebase credentials (NEVER commit these)
+**/firebase-service-account.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# IDE
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+*.lock
+
+# Logs
+*.log
