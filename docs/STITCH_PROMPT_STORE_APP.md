@@ -5,7 +5,8 @@
 
 ## PROMPT START
 
-**Project Name:** DHAV — Hyperlocal Kirana Delivery App (Store Owner + Delivery Boy Side)  
+**Project Name:** DHAV — Hyperlocal 
+ App (Store Owner + Delivery Boy Side)  
 **Platform:** Mobile App (Android + iOS)  
 **Design Style:** Professional, high-trust, action-driven. The store owner needs FAST access to order actions — no clutter. Bold UI, high-contrast buttons, military precision in layouts. Think a Bloomberg Terminal meets a hyperlocal dukaan — serious, efficient, warm. Dark navy + emerald green + saffron orange palette. Bold readable typography because shopkeepers often use phones quickly in a busy store environment.
 
