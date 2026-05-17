@@ -75,6 +75,16 @@ class StoreCreateRequest(BaseModel):
     operating_hours: Optional[OperatingHours] = None
 
 
+class StoreSelfRegisterRequest(BaseModel):
+    owner_name: str
+    shop_name: str
+    phone: str
+    address: str
+    lat: float
+    lng: float
+    operating_hours: Optional[OperatingHours] = None
+
+
 class StoreToggleRequest(BaseModel):
     is_open: bool
 

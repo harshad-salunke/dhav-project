@@ -1,0 +1,98 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/material.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Handled by OS notification tray — no special action needed
+}
+
+class FcmService {
+  final _messaging = FirebaseMessaging.instance;
+  final _localNotifications = FlutterLocalNotificationsPlugin();
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  Function(String orderId)? onOrderStatusUpdate;
+
+  FcmService({required this.navigatorKey});
+
+  static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
+    'dhav_customer_orders',
+    'DHAV Order Updates',
+    description: 'Notifications about your DHAV orders',
+    importance: Importance.high,
+  );
+
+  Future<void> init() async {
+    // Background handler
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    // Request permission
+    await _messaging.requestPermission(alert: true, sound: true, badge: true);
+
+    // Create notification channel (Android 8+)
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_channel);
+
+    await _localNotifications.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+      onDidReceiveNotificationResponse: _onNotificationTap,
+    );
+
+    // Foreground message handler
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+
+    // When app opened from notification
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+
+    // Cold start tap
+    final initial = await _messaging.getInitialMessage();
+    if (initial != null) _handleMessageTap(initial);
+  }
+
+  Future<String?> getToken() async => _messaging.getToken();
+
+  void _handleForegroundMessage(RemoteMessage message) {
+    final data = message.data;
+    final orderId = data['order_id'] as String?;
+
+    _localNotifications.show(
+      message.hashCode,
+      message.notification?.title ?? 'DHAV Order Update',
+      message.notification?.body ?? '',
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channel.id,
+          _channel.name,
+          channelDescription: _channel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+      ),
+      payload: orderId,
+    );
+
+    if (orderId != null) onOrderStatusUpdate?.call(orderId);
+  }
+
+  void _handleMessageTap(RemoteMessage message) {
+    final orderId = message.data['order_id'] as String?;
+    if (orderId != null) {
+      navigatorKey.currentState?.pushNamed('/order-tracking',
+          arguments: {'order_id': orderId});
+    }
+  }
+
+  void _onNotificationTap(NotificationResponse response) {
+    final orderId = response.payload;
+    if (orderId != null && orderId.isNotEmpty) {
+      navigatorKey.currentState?.pushNamed('/order-tracking',
+          arguments: {'order_id': orderId});
+    }
+  }
+}

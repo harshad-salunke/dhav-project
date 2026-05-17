@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/categories")
 async def get_categories():
-    items_node = db.reference("catalog_items").get() or {}
+    items_node = db.reference("catalog").get() or {}
     categories = sorted({v["category"] for v in items_node.values() if v.get("is_active")})
     return {"categories": categories}
 
@@ -23,7 +23,7 @@ async def get_items(
     search: str = Query(None),
     limit: int = Query(50, le=200),
 ):
-    items_node = db.reference("catalog_items").get() or {}
+    items_node = db.reference("catalog").get() or {}
     results = []
     for item_id, data in items_node.items():
         if not data.get("is_active", True):

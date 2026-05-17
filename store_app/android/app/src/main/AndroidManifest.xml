@@ -49,6 +49,12 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="dhav_incoming_orders"/>
 
+        <!-- Google Maps API key. Get one from https://console.cloud.google.com/
+             (enable "Maps SDK for Android"). Paste the key below before running. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyBQ44KnU3In9clKOhD4Hk29-etuFERBKhg"/>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

@@ -26,6 +26,7 @@ class ApiClient {
         throw ApiException(401, 'Not signed in');
       }
       final token = await user.getIdToken();
+      print("final token : $token");
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;
@@ -39,27 +40,46 @@ class ApiClient {
     );
   }
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? query, bool requireAuth = true}) async {
+  Future<dynamic> get(
+    String path, {
+    Map<String, dynamic>? query,
+    bool requireAuth = true,
+  }) async {
     final res = await _http
-        .get(_uri(path, query), headers: await _headers(requireAuth: requireAuth))
+        .get(
+          _uri(path, query),
+          headers: await _headers(requireAuth: requireAuth),
+        )
         .timeout(ApiConfig.requestTimeout);
     return _decode(res);
   }
 
-  Future<dynamic> post(String path, {Object? body, bool requireAuth = true}) async {
+  Future<dynamic> post(
+    String path, {
+    Object? body,
+    bool requireAuth = true,
+  }) async {
     final res = await _http
-        .post(_uri(path),
-            headers: await _headers(requireAuth: requireAuth),
-            body: body == null ? null : jsonEncode(body))
+        .post(
+          _uri(path),
+          headers: await _headers(requireAuth: requireAuth),
+          body: body == null ? null : jsonEncode(body),
+        )
         .timeout(ApiConfig.requestTimeout);
     return _decode(res);
   }
 
-  Future<dynamic> patch(String path, {Object? body, bool requireAuth = true}) async {
+  Future<dynamic> patch(
+    String path, {
+    Object? body,
+    bool requireAuth = true,
+  }) async {
     final res = await _http
-        .patch(_uri(path),
-            headers: await _headers(requireAuth: requireAuth),
-            body: body == null ? null : jsonEncode(body))
+        .patch(
+          _uri(path),
+          headers: await _headers(requireAuth: requireAuth),
+          body: body == null ? null : jsonEncode(body),
+        )
         .timeout(ApiConfig.requestTimeout);
     return _decode(res);
   }
@@ -74,7 +94,9 @@ class ApiClient {
   dynamic _decode(http.Response res) {
     final body = res.body.isEmpty ? null : jsonDecode(res.body);
     if (res.statusCode >= 200 && res.statusCode < 300) return body;
-    final detail = (body is Map && body['detail'] != null) ? body['detail'].toString() : res.body;
+    final detail = (body is Map && body['detail'] != null)
+        ? body['detail'].toString()
+        : res.body;
     throw ApiException(res.statusCode, detail);
   }
 }

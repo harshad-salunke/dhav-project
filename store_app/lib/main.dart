@@ -1,39 +1,79 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
 import 'core/constants/app_routes.dart';
-import 'core/theme/app_theme.dart';
+import 'core/providers/auth_provider.dart';
+import 'core/providers/delivery_provider.dart';
+import 'core/providers/earnings_provider.dart';
+import 'core/providers/inventory_provider.dart';
+import 'core/providers/order_provider.dart';
+import 'core/providers/store_provider.dart';
 import 'core/providers/theme_provider.dart';
-import 'features/auth/splash_screen.dart';
+import 'core/services/fcm_service.dart';
+import 'core/theme/app_theme.dart';
+
 import 'features/auth/login_screen.dart';
+import 'features/auth/splash_screen.dart';
+import 'features/auth/store_registration_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
-import 'features/orders/incoming_order_screen.dart';
+import 'features/delivery/delivery_assignment_screen.dart';
+import 'features/delivery/delivery_completion_screen.dart';
+import 'features/delivery/delivery_history_screen.dart';
+import 'features/delivery/delivery_home_screen.dart';
+import 'features/delivery/delivery_incoming_assignment_screen.dart';
+import 'features/earnings/earnings_screen.dart';
+import 'features/help/help_support_screen.dart';
+import 'features/inventory/inventory_screen.dart';
+import 'features/notifications/notifications_screen.dart';
 import 'features/orders/active_order_screen.dart';
-import 'features/orders/order_list_screen.dart';
+import 'features/orders/incoming_order_screen.dart';
 import 'features/orders/missed_order_screen.dart';
 import 'features/orders/order_detail_screen.dart';
-import 'features/inventory/inventory_screen.dart';
-import 'features/earnings/earnings_screen.dart';
+import 'features/orders/order_list_screen.dart';
 import 'features/profile/profile_screen.dart';
-import 'features/notifications/notifications_screen.dart';
-import 'features/help/help_support_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/store/store_profile_screen.dart';
 import 'features/team/store_team_screen.dart';
-import 'features/delivery/delivery_home_screen.dart';
-import 'features/delivery/delivery_assignment_screen.dart';
-import 'features/delivery/delivery_history_screen.dart';
-import 'features/delivery/delivery_completion_screen.dart';
-import 'features/delivery/delivery_incoming_assignment_screen.dart';
-import 'features/delivery/delivery_assignment_screen.dart';
-import 'features/delivery/delivery_history_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
-void main() {
+/// Global navigator key — used by FCM service to push the incoming-order
+/// overlay from anywhere (including cold-start from notification).
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+final FcmService fcmService = FcmService();
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  await fcmService.init();
+
+  // When FCM fires, push the incoming-order screen with the order_id as args.
+  fcmService.onIncomingOrder = (data) {
+    final orderId = data['order_id'];
+    if (orderId == null) return;
+    navigatorKey.currentState?.pushNamed(
+      AppRoutes.incomingOrder,
+      arguments: orderId,
+    );
+  };
+
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => StoreProvider()),
+        ChangeNotifierProvider(create: (_) => OrderProvider()),
+        ChangeNotifierProvider(create: (_) => InventoryProvider()),
+        ChangeNotifierProvider(create: (_) => EarningsProvider()),
+        ChangeNotifierProvider(create: (_) => DeliveryProvider()),
+      ],
       child: const DhavStoreApp(),
     ),
   );
@@ -46,12 +86,17 @@ class DhavStoreApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
 
-    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: themeProvider.isDark ? Brightness.light : Brightness.dark,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: themeProvider.isDark
+            ? Brightness.light
+            : Brightness.dark,
+      ),
+    );
 
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'DHAV Store Partner',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
@@ -64,19 +109,26 @@ class DhavStoreApp extends StatelessWidget {
             return _pageRoute(const SplashScreen());
           case AppRoutes.login:
             return _pageRoute(const LoginScreen());
+          case AppRoutes.registerStore:
+            return _pageRoute(const StoreRegistrationScreen());
           case AppRoutes.dashboard:
             return _pageRoute(const DashboardScreen());
           case AppRoutes.incomingOrder:
+            final orderId = settings.arguments as String?;
             return PageRouteBuilder(
-              pageBuilder: (_, _, _) => const IncomingOrderScreen(),
-              transitionsBuilder: (_, anim, _, child) => FadeTransition(opacity: anim, child: child),
+              pageBuilder: (_, __, ___) =>
+                  IncomingOrderScreen(orderId: orderId),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
             );
           case AppRoutes.activeOrder:
-            return _pageRoute(const ActiveOrderScreen());
+            final orderId = settings.arguments as String?;
+            return _pageRoute(ActiveOrderScreen(orderId: orderId));
           case AppRoutes.orderList:
             return _pageRoute(const OrderListScreen());
           case AppRoutes.orderDetail:
-            return _pageRoute(const OrderDetailScreen());
+            final orderId = settings.arguments as String?;
+            return _pageRoute(OrderDetailScreen(orderId: orderId));
           case AppRoutes.inventory:
             return _pageRoute(const InventoryScreen());
           case AppRoutes.earnings:
@@ -96,7 +148,8 @@ class DhavStoreApp extends StatelessWidget {
           case AppRoutes.deliveryHome:
             return _pageRoute(const DeliveryHomeScreen());
           case AppRoutes.deliveryAssignment:
-            return _pageRoute(const DeliveryAssignmentScreen());
+            final orderId = settings.arguments as String?;
+            return _pageRoute(DeliveryAssignmentScreen(orderId: orderId));
           case AppRoutes.deliveryHistory:
             return _pageRoute(const DeliveryHistoryScreen());
           case AppRoutes.deliveryCompletion:

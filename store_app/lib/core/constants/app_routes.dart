@@ -1,6 +1,7 @@
 class AppRoutes {
   static const String splash = '/';
   static const String login = '/login';
+  static const String registerStore = '/register-store';
   static const String dashboard = '/dashboard';
   static const String incomingOrder = '/incoming-order';
   static const String activeOrder = '/active-order';

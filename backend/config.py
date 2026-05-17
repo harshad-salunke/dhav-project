@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    firebase_service_account: str = "backend/firebase-service-account.json"
+    firebase_service_account: str = "C:/Users/Harshad Salunke/Desktop/Kirana Project/backend/firebase-service-account.json"
     firebase_project_id: str = "dhav-quick-commerce"
     firebase_database_url: str = "https://dhav-quick-commerce-default-rtdb.firebaseio.com"
     firebase_storage_bucket: str = "dhav-quick-commerce.appspot.com"

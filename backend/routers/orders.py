@@ -28,6 +28,16 @@ def _get_order_or_404(order_id: str) -> dict:
     return data
 
 
+def _store_id_for_user(uid: str) -> str:
+    """Resolve store_id from the user node (stores are keyed by store_id,
+    not owner uid)."""
+    user_node = db.reference(f"users/{uid}").get() or {}
+    store_id = user_node.get("store_id")
+    if not store_id:
+        raise HTTPException(status_code=404, detail="Store not found for this user")
+    return store_id
+
+
 def _delivery_fee(store_lat: float, store_lng: float,
                   customer_lat: float, customer_lng: float) -> float:
     dist = haversine_km(store_lat, store_lng, customer_lat, customer_lng)
@@ -111,11 +121,12 @@ async def accept_order(
     if order["status"] != "broadcasting":
         raise HTTPException(status_code=409, detail="Order is no longer available")
 
-    store_node = db.reference(f"stores/{user.uid}").get()
+    store_id = _store_id_for_user(user.uid)
+    store_node = db.reference(f"stores/{store_id}").get()
     if not store_node:
         raise HTTPException(status_code=404, detail="Store profile not found")
 
-    won = atomic_accept_order(order_id, user.uid)
+    won = atomic_accept_order(order_id, store_id)
     if not won:
         raise HTTPException(status_code=409, detail="Order already accepted by another store")
 
@@ -135,7 +146,7 @@ async def accept_order(
     send_order_accepted_to_customer(customer_token, order_id, store_node.get("shop_name", "Store"))
 
     # Notify other stores that order is taken
-    remaining = [sid for sid in order.get("broadcast_store_ids", []) if sid != user.uid]
+    remaining = [sid for sid in order.get("broadcast_store_ids", []) if sid != store_id]
     other_tokens = []
     for sid in remaining:
         t = db.reference(f"stores/{sid}/fcm_token").get()
@@ -156,9 +167,10 @@ async def reject_order(
     user: TokenVerifyResponse = Depends(require_role("store_owner")),
 ):
     order = _get_order_or_404(order_id)
+    store_id = _store_id_for_user(user.uid)
     rejected = order.get("rejected_store_ids", [])
-    if user.uid not in rejected:
-        rejected.append(user.uid)
+    if store_id not in rejected:
+        rejected.append(store_id)
     db.reference(f"orders/{order_id}").update({"rejected_store_ids": rejected})
     return {"status": "rejected"}
 
@@ -172,13 +184,14 @@ async def assign_delivery_boy(
     user: TokenVerifyResponse = Depends(require_role("store_owner")),
 ):
     order = _get_order_or_404(order_id)
-    if order.get("accepted_by_store_id") != user.uid:
+    store_id = _store_id_for_user(user.uid)
+    if order.get("accepted_by_store_id") != store_id:
         raise HTTPException(status_code=403, detail="This order was not accepted by your store")
     if order["status"] != "accepted":
         raise HTTPException(status_code=409, detail="Order must be in 'accepted' state")
 
     boy_node = db.reference(f"delivery_boys/{body.delivery_boy_id}").get()
-    if not boy_node or boy_node.get("store_id") != user.uid:
+    if not boy_node or boy_node.get("store_id") != store_id:
         raise HTTPException(status_code=404, detail="Delivery boy not found in your store")
 
     db.reference(f"orders/{order_id}").update({
@@ -197,7 +210,8 @@ async def mark_packed(
     user: TokenVerifyResponse = Depends(require_role("store_owner")),
 ):
     order = _get_order_or_404(order_id)
-    if order.get("accepted_by_store_id") != user.uid:
+    store_id = _store_id_for_user(user.uid)
+    if order.get("accepted_by_store_id") != store_id:
         raise HTTPException(status_code=403, detail="Not your order")
     if order["status"] != "accepted":
         raise HTTPException(status_code=409, detail="Order must be 'accepted' before packing")
@@ -213,7 +227,8 @@ async def dispatch_order(
     user: TokenVerifyResponse = Depends(require_role("store_owner")),
 ):
     order = _get_order_or_404(order_id)
-    if order.get("accepted_by_store_id") != user.uid:
+    store_id = _store_id_for_user(user.uid)
+    if order.get("accepted_by_store_id") != store_id:
         raise HTTPException(status_code=403, detail="Not your order")
     if order["status"] != "packed":
         raise HTTPException(status_code=409, detail="Order must be 'packed' before dispatch")
@@ -288,4 +303,32 @@ async def my_orders(
 ):
     all_orders = db.reference("orders").order_by_child("customer_id").equal_to(user.uid).get() or {}
     orders = sorted(all_orders.values(), key=lambda o: o.get("created_at", 0), reverse=True)
+    return orders
+
+
+@router.get("/customer/me")
+async def my_orders_alias(
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    """Alias used by the customer Flutter app."""
+    all_orders = db.reference("orders").order_by_child("customer_id").equal_to(user.uid).get() or {}
+    orders = sorted(all_orders.values(), key=lambda o: o.get("created_at", 0), reverse=True)
+    return orders
+
+
+# ── Delivery Boy: My Assignments ───────────────────────────────────────────────
+
+@router.get("/delivery/me")
+async def my_delivery_assignments(
+    user: TokenVerifyResponse = Depends(require_role("delivery")),
+):
+    all_orders = (
+        db.reference("orders")
+        .order_by_child("assigned_delivery_boy_id")
+        .equal_to(user.uid)
+        .get()
+        or {}
+    )
+    orders = sorted(all_orders.values(),
+                    key=lambda o: o.get("created_at", 0), reverse=True)
     return {"orders": orders}
