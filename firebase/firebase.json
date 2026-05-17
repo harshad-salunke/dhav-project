@@ -1,0 +1,8 @@
+{
+  "database": {
+    "rules": "realtime-db.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}
