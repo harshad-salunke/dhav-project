@@ -16,14 +16,14 @@ import 'features/auth/onboarding_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/email_signin_screen.dart';
 import 'features/auth/profile_setup_screen.dart';
-import 'features/home/home_screen.dart';
-import 'features/search/search_screen.dart';
+import 'core/widgets/main_shell.dart';
 import 'features/cart/cart_screen.dart';
 import 'features/orders/broadcasting_screen.dart';
 import 'features/orders/order_accepted_screen.dart';
 import 'features/orders/order_tracking_screen.dart';
 import 'features/orders/order_history_screen.dart';
 import 'features/profile/profile_screen.dart';
+import 'features/search/search_screen.dart';
 import 'features/notifications/notifications_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -68,11 +68,11 @@ class DhavCustomerApp extends StatelessWidget {
         initialRoute: AppRoutes.splash,
         routes: {
           AppRoutes.splash: (_) => const SplashScreen(),
-          '/onboarding': (_) => const OnboardingScreen(),
+          AppRoutes.onboarding: (_) => const OnboardingScreen(),
           AppRoutes.login: (_) => const LoginScreen(),
           AppRoutes.emailSignIn: (_) => const EmailSignInScreen(),
           AppRoutes.profileSetup: (_) => const ProfileSetupScreen(),
-          AppRoutes.home: (_) => const HomeScreen(),
+          AppRoutes.home: (_) => const MainShell(),
           AppRoutes.search: (_) => const SearchScreen(),
           AppRoutes.cart: (_) => const CartScreen(),
           AppRoutes.broadcasting: (_) => const BroadcastingScreen(),

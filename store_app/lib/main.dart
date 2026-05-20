@@ -19,7 +19,8 @@ import 'features/auth/splash_screen.dart';
 import 'features/auth/store_registration_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/delivery/delivery_assignment_screen.dart';
-import 'features/delivery/delivery_completion_screen.dart';
+import 'features/delivery/delivery_completion_screen.dart'
+    show DeliveryCompletionScreen, DeliveryCompletionArgs;
 import 'features/delivery/delivery_history_screen.dart';
 import 'features/delivery/delivery_home_screen.dart';
 import 'features/delivery/delivery_incoming_assignment_screen.dart';
@@ -36,7 +37,6 @@ import 'features/profile/profile_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/store/store_profile_screen.dart';
 import 'features/team/store_team_screen.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
 /// Global navigator key — used by FCM service to push the incoming-order
@@ -53,12 +53,22 @@ Future<void> main() async {
 
   await fcmService.init();
 
-  // When FCM fires, push the incoming-order screen with the order_id as args.
+  // Store owner: new order alert → push incoming order popup.
   fcmService.onIncomingOrder = (data) {
     final orderId = data['order_id'];
     if (orderId == null) return;
     navigatorKey.currentState?.pushNamed(
       AppRoutes.incomingOrder,
+      arguments: orderId,
+    );
+  };
+
+  // Delivery boy: assignment alert → push delivery incoming assignment popup.
+  fcmService.onDeliveryAssigned = (data) {
+    final orderId = data['order_id'];
+    if (orderId == null) return;
+    navigatorKey.currentState?.pushNamed(
+      AppRoutes.deliveryIncomingAssignment,
       arguments: orderId,
     );
   };
@@ -153,9 +163,18 @@ class DhavStoreApp extends StatelessWidget {
           case AppRoutes.deliveryHistory:
             return _pageRoute(const DeliveryHistoryScreen());
           case AppRoutes.deliveryCompletion:
-            return _pageRoute(const DeliveryCompletionScreen());
+            final args = settings.arguments as DeliveryCompletionArgs?;
+            return _pageRoute(DeliveryCompletionScreen(args: args));
           case AppRoutes.deliveryIncomingAssignment:
-            return _pageRoute(const DeliveryIncomingAssignmentScreen());
+            final orderId = settings.arguments as String?;
+            return PageRouteBuilder(
+              pageBuilder: (_, __, ___) =>
+                  DeliveryIncomingAssignmentScreen(orderId: orderId),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
+            );
+          case AppRoutes.deliveryMissedOrder:
+            return _pageRoute(const MissedOrderScreen());
           case AppRoutes.missedOrderWarning:
             return _pageRoute(const MissedOrderScreen());
           default:

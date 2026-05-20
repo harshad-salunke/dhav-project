@@ -39,15 +39,135 @@
 
 ## 🔖 CURRENT STATUS (Always update this at top)
 
-**Current Phase:** Phase 4 — Customer App MVP (Flutter) — UI + backend wiring COMPLETE
-**Last task completed:** All 14 customer app screens built from Figma design (Splash → Onboarding → Login → Email Sign-In → Profile Setup → Home → Search → Cart → Broadcasting → Order Accepted → Order Tracking → Order History → Profile → Notifications). All screens wired to real backend APIs + WebSocket live tracking.
-**Next task to do:** 1) Place `google-services.json` in `customer_app/android/app/` (same Firebase project as store_app). 2) Replace `YOUR_GOOGLE_MAPS_API_KEY` in AndroidManifest.xml. 3) Run `cd customer_app && flutter pub get && flutter run`. 4) Smoke-test end-to-end order flow.
-**Blockers:** google-services.json (manual step), Google Maps API key (manual step)
-**Last updated:** 2026-05-18
+**Current Phase:** Phase 7 — Testing + Bug Fixes — IN PROGRESS 🔄
+**Last task completed:** Fixed 4 critical production bugs in customer app (catalog loading, nav bar, location, profile setup).
+**Next task to do:** Run `cd customer_app && flutter pub get && flutter run` to verify fixes. Then deploy backend to Railway.
+**Last updated:** 2026-05-20
+
+---
+
+## Session 2026-05-20 — Customer App Bug Fixes
+
+**Current Phase:** Phase 7 (Production Bug Fixes)
+**Files modified (customer_app/):**
+- `lib/core/providers/catalog_provider.dart` — BUGFIX: backend `/catalog/items` returns `{"items":[...]}` not a raw list; fixed JSON parsing to extract `body['items']`. Same fix for categories: backend returns `{"categories":["Grains",...]}` (strings, not objects), now converted to `CatalogCategory` directly.
+- `lib/core/widgets/main_shell.dart` — NEW: persistent `MainShell` widget with `IndexedStack` — all 4 tabs (Home/Search/Orders/Profile) are kept alive; switching tabs is instant with no full rebuild. `MainShell.of(context)?.switchTab(N)` lets any child switch tabs.
+- `lib/main.dart` — Route `/home` now points to `MainShell` instead of `HomeScreen`.
+- `lib/features/home/home_screen.dart` — Removed `DhavBottomNav`. Added real reverse geocoding using Nominatim (OpenStreetMap, free, no API key). Added `_reverseGeocode()` method that returns suburb/neighbourhood from GPS coords. Search bar tap and avatar tap now use `switchTab` instead of `pushNamed`.
+- `lib/features/search/search_screen.dart` — Removed `DhavBottomNav`. Cart bar is now the only `bottomNavigationBar` when cart is non-empty.
+- `lib/features/orders/order_history_screen.dart` — Removed `DhavBottomNav`.
+- `lib/features/profile/profile_screen.dart` — Removed `DhavBottomNav`. Added "Edit Profile" menu item. Order History tap uses `switchTab(2)`.
+- `lib/features/auth/splash_screen.dart` — Removed `profileComplete` check; always routes logged-in users to `/home`. Profile setup is now optional.
+- `lib/features/auth/profile_setup_screen.dart` — Rewritten: added Skip button in AppBar, address field is now optional (name only required), shows "We auto-detect your location" hint. Accessible from Profile → Edit Profile.
+- `lib/features/auth/login_screen.dart` — Removed profileComplete check; always routes to `/home` on success.
+- `lib/features/auth/email_signin_screen.dart` — Same fix as login_screen.
+
+### Bugs fixed:
+1. **Catalog blank** — `CatalogProvider` was doing `jsonDecode(body) as List` but backend wraps in `{"items":[...]}`. Now correctly extracts the array.
+2. **Nav tab = full rebuild** — Replaced `Navigator.pushReplacementNamed` with `IndexedStack` in `MainShell`. No more screen disposal on tab switch.
+3. **Location hardcoded** — Was always showing "Kothrud, Pune". Now calls Nominatim reverse geocoding API with actual GPS coordinates.
+4. **Profile setup blocking** — After login, app demanded both name AND address. Now users go straight to home; profile setup is accessible from Profile tab and address is optional.
+
+### NEXT TIME — START HERE:
+1. `cd customer_app && flutter pub get && flutter run`
+2. Test: Login → confirm no profile-setup screen → home shows real location name
+3. Test: Catalog items load (not blank)
+4. Test: Tap between tabs — confirm no flicker/rebuild
+5. Then continue with deployment: `cd backend && railway login && railway up`
 
 ---
 
 ## 📅 SESSION LOG
+
+## Session 2026-05-19 (cont.) — Full Admin Enhancements
+
+**Current Phase:** Phase 6 Extended + Phase 7 (Testing + Deployment) pending
+**Files modified (backend/):**
+- `routers/admin.py` — MAJOR EXPANSION:
+  - `POST /admin/stores/onboard` — creates Firebase Auth user (email+password) + store document in one call
+  - `PUT /admin/stores/{id}` — update any store field (name, area, phone, location lat/lng auto-re-indexes geofence)
+  - `DELETE /admin/stores/{id}` — soft-delete (deactivates + removes from geofence)
+  - `GET /admin/stores/{id}/inventory` — all catalog items with per-store availability + quantity
+  - `PUT /admin/stores/{id}/inventory` — set availability + quantity for all items in a store
+  - `GET /admin/stores/{id}/reviews` — all reviews with avg rating
+  - `DELETE /admin/stores/{id}/reviews/{review_id}` — delete specific review
+  - `GET /admin/stores/{id}/stats` — per-store order breakdown (total/delivered/failed/pending, revenue, platform fee)
+  - `GET /admin/catalog/items` — all catalog items including inactive (admin-only view)
+  - `POST /admin/catalog/items` — create catalog item
+  - `PATCH /admin/catalog/items/{id}` — update catalog item
+  - `DELETE /admin/catalog/items/{id}` — deactivate or permanently delete catalog item
+- `services/api_client.dart` — added `put()` and `delete()` HTTP methods
+
+**Files added (admin_dashboard/lib/):**
+- `core/models/catalog_item.dart` — AdminCatalogItem, StoreInventoryItem, StoreReview, StoreStats models
+- `core/providers/catalog_provider.dart` — full CRUD for catalog items
+- `core/providers/stores_provider.dart` — added `onboardStore()`, `updateStore()`, `deleteStore()` methods
+- `features/catalog/catalog_screen.dart` — full catalog management (table with search/filter by category, add/edit dialog, activate/deactivate/delete per item)
+- `features/stores/store_onboard_screen.dart` — split-panel: left = interactive Leaflet.js map (click/drag pin → lat/lng via postMessage), manual lat/lng fields; right = store + owner details + login credentials form; shows success dialog with credentials on completion
+- `features/stores/store_detail_screen.dart` — 4-tab full detail view:
+  - Overview: 5 KPI cards + store info + inline edit form (any field) + admin actions (verify/suspend/unsuspend/delete)
+  - Orders: full order list with status badges + amount + date
+  - Inventory: per-item toggle availability + quantity +/- controls + Save button
+  - Reviews: avg rating + star display + delete per review
+
+**Files modified (admin_dashboard/lib/):**
+- `core/constants/app_routes.dart` — added `storeOnboard`, `catalog` routes
+- `core/widgets/admin_sidebar.dart` — added Catalog nav item + active-highlight for store sub-routes
+- `features/stores/stores_screen.dart` — added "Onboard Store" orange button; rows now tappable to navigate to store detail; added "View Details" action icon
+- `main.dart` — registered CatalogProvider; added routes for storeOnboard, catalog, storeDetail (using onGenerateRoute with arguments for storeId)
+
+### NEXT TIME — START HERE:
+**Phase 7.2 — Deploy Backend to Railway**
+1. `cd backend && railway login && railway up`
+2. Set env vars on Railway dashboard (FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_DATABASE_URL, etc.)
+3. Note Railway URL → update `customer_app/lib/core/config/api_config.dart` + `store_app/lib/core/config/api_config.dart`
+
+**Phase 7.3 — Deploy Admin Dashboard**
+1. `cd admin_dashboard && flutter pub get && flutter build web`
+2. `firebase deploy --only hosting`
+
+## Session 2026-05-19 — Phase 7.1 Tests + 7.2 Railway Deployment Files
+
+**Current Phase:** Phase 7 (Testing + Deployment) — in progress
+**Files added (backend/tests/):**
+- `tests/test_geo.py` — 7 tests for haversine_km (zero distance, known Pune distances, symmetry, equator, negative coords)
+- `tests/test_helpers.py` — 7 tests for new_id (UUID format, uniqueness) and now_ms (type, value range, monotonicity)
+- `tests/test_geofencing.py` — 15 tests: geohash encode, index_store_geofence (Firebase write), remove (Firebase delete), find_nearby_stores (empty, within radius, excludes inactive/suspended, sorted by distance)
+- `tests/test_penalties.py` — 13 tests: process_store_failure (1st/3rd/5th strike → warning/suspend/ban, missing store, strike log), lift_expired_suspensions (expired/active/non-suspended), auto_fail_stuck_orders (old/recent/delivered/with-store)
+
+**Files modified (backend/):**
+- `services/geofencing.py` — BUGFIX: replaced `geohash.neighbors()` (doesn't exist in pygeohash 1.2.0) with new `_get_all_neighbors()` using `geohash.get_adjacent()` for all 8 surrounding cells. This was a critical silent bug — store lookup would have returned empty results.
+- `firebase_init.py` — Added `FIREBASE_SERVICE_ACCOUNT_JSON` env var support (full JSON as string) for Railway deployment, falls back to file path for local dev.
+- `config.py` — Fixed hardcoded Windows file path default (`C:/Users/...`) to portable `firebase-service-account.json`. Upgraded from deprecated Pydantic v1 `class Config` to v2 `model_config = SettingsConfigDict(...)`.
+- `.env.example` — Documented new `FIREBASE_SERVICE_ACCOUNT_JSON` env var.
+
+**Files added (backend/):**
+- `Procfile` — `web: uvicorn main:app --host 0.0.0.0 --port $PORT`
+- `railway.toml` — Nixpacks builder, health check at `/health`, restart on failure
+
+**Test results:** 39/39 passed ✅
+
+### NEXT TIME — START HERE:
+**Phase 7.2 — Deploy Backend to Railway**
+1. Install Railway CLI: `npm install -g @railway/cli`
+2. Login: `railway login`
+3. From backend/ folder: `railway init` → name it `dhav-backend`
+4. Set env vars on Railway dashboard (all from `.env.example`):
+   - `FIREBASE_SERVICE_ACCOUNT_JSON` — paste the full contents of `firebase-service-account.json` as one line (use: `python -c "import json; print(json.dumps(json.load(open('firebase-service-account.json'))))"`)
+   - `FIREBASE_DATABASE_URL`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`
+5. Deploy: `railway up`
+6. Note the Railway URL → update `customer_app/lib/core/config/api_config.dart` and `store_app/lib/core/config/api_config.dart` with production URL
+
+**Phase 7.3 — Deploy Admin Dashboard to Firebase Hosting**
+1. Fill in Firebase Web config in `admin_dashboard/lib/main.dart` (replace YOUR_* placeholders — get from Firebase Console → Project Settings → Your Apps → Web App → Config)
+2. `cd admin_dashboard && flutter build web`
+3. `firebase use dhav-quick-commerce`
+4. `firebase deploy --only hosting`
+
+**Phase 7.4 — Build Release APKs**
+1. `cd customer_app && flutter build apk --release`
+2. `cd store_app && flutter build apk --release`
+3. Share APKs with test users
 
 ### Session 1 — [Date will go here] — Project Kickoff
 
@@ -70,6 +190,78 @@
 ---
 
 <!-- Add new sessions below this line, newest at top -->
+
+## Session 2026-05-18 — Phase 6 Admin Dashboard (Flutter Web, fully wired)
+
+**Current Phase:** Phase 6 COMPLETE
+**Files added (admin_dashboard/):**
+- `pubspec.yaml` — firebase_core, firebase_auth, provider, http, intl, google_fonts, fl_chart
+- `web/index.html` — Flutter Web entry point
+- `lib/main.dart` — Firebase.initializeApp, MultiProvider (5 providers), all routes, _ProtectedRoute + _AuthGuard guards
+- `lib/core/config/api_config.dart` — localhost:8000 default, override with --dart-define
+- `lib/core/theme/app_colors.dart` — dark theme palette (bg #0F1117, surface #1A1F2E, orange #F97316)
+- `lib/core/theme/app_theme.dart` — ThemeData.dark with Inter font
+- `lib/core/constants/app_routes.dart` — all named routes
+- `lib/core/services/auth_service.dart` — Firebase email/password auth
+- `lib/core/services/api_client.dart` — HTTP wrapper with Firebase ID token injection
+- `lib/core/models/{analytics,store,order,settlement}.dart` — typed models from backend JSON
+- `lib/core/providers/{auth,dashboard,stores,orders,settlements}_provider.dart` — all providers
+- `lib/core/widgets/admin_sidebar.dart` — persistent left nav with DHAV logo + 5 nav items + sign out
+- `lib/core/widgets/status_badge.dart` — color-coded badge for order/store statuses
+- `lib/features/auth/login_screen.dart` — centered card, email+password, error display, admin-only role check
+- `lib/features/dashboard/dashboard_screen.dart` — 4 KPI metric cards + recent orders + pending settlements + stores overview
+- `lib/features/stores/stores_screen.dart` — table with All/Online/Suspended filters + verify/suspend/unsuspend actions
+- `lib/features/orders/orders_screen.dart` — table with status filter dropdown + force-fail action
+- `lib/features/customers/customers_screen.dart` — customer list table with search
+- `lib/features/settlements/settlements_screen.dart` — settlement table with summary bar + mark-paid
+
+### What's pending (manual step):
+- Replace `YOUR_*` placeholders in `admin_dashboard/lib/main.dart` with real Firebase Web config values (Firebase Console → Project Settings → Your apps → Web app → Config)
+- Run: `cd admin_dashboard && flutter pub get && flutter run -d chrome`
+
+### NEXT TIME — START HERE:
+**Phase 7 — Testing + Deployment**
+1. `cd backend && pytest` — run all unit tests
+2. Deploy backend to Railway.app: `railway up` (add all env vars from `.env.example`)
+3. Deploy admin dashboard to Firebase Hosting: `cd admin_dashboard && flutter build web && firebase deploy --only hosting`
+4. Build customer APK: `cd customer_app && flutter build apk --release`
+5. Build store APK: `cd store_app && flutter build apk --release`
+
+## Session 2026-05-18 — Phase 5 Delivery Boy View (fully wired)
+
+**Current Phase:** Phase 5 COMPLETE
+**Files modified (store_app/):**
+- `lib/features/delivery/delivery_incoming_assignment_screen.dart` — rewritten: accepts `orderId` param, loads real order via `OrderProvider`, shows real destination/items/delivery fee/payment method; ACCEPT routes to `deliveryAssignment` with orderId; DECLINE routes to `deliveryHome`; 30s countdown auto-declines; bottom sheet shows full item list + earnings breakdown
+- `lib/features/delivery/delivery_completion_screen.dart` — rewritten: accepts `DeliveryCompletionArgs` (orderId, earnings, customerArea, itemCount); shows real earnings on the green card; clean "Back to Home" → `deliveryHome` flow
+- `lib/features/delivery/delivery_assignment_screen.dart` — added: after `markDelivered()` navigates to `deliveryCompletion` with real `DeliveryCompletionArgs` instead of just `pop()`
+- `lib/core/services/fcm_service.dart` — added: `DeliveryAssignedHandler` typedef + `onDeliveryAssigned` callback; new `_triggerDeliveryAlert()` for `type='delivery_assigned'` FCM messages; `syncDeliveryTokenToBackend()` → `PATCH /delivery/me/fcm-token`; `listenForDeliveryTokenRefresh()`
+- `lib/features/auth/splash_screen.dart` — delivery boy on login now calls `fcmService.syncDeliveryTokenToBackend()` + `listenForDeliveryTokenRefresh()`
+- `lib/main.dart` — wired `fcmService.onDeliveryAssigned` → push `deliveryIncomingAssignment` with orderId; fixed `deliveryIncomingAssignment` route to pass orderId arg (was `const`); added missing `deliveryMissedOrder` route; fixed duplicate `firebase_core` import
+
+**Files added (backend/):**
+- `backend/routers/delivery.py` — NEW: `PATCH /delivery/me/fcm-token` (delivery boy updates own FCM token by searching their store's delivery_boys node); `GET /delivery/me/profile`
+- `backend/main.py` — added `delivery` router at `/delivery`
+
+**Files modified (docs/):**
+- `docs/BUILD_PLAN.md` — Phase 5 all tasks marked [x], OVERALL PROGRESS Phase 5 marked done
+- `docs/SESSION_NOTES.md` — current status updated
+
+### What worked:
+- Full delivery boy lifecycle: FCM push → popup → accept → GPS streaming → Google Maps → mark delivered → completion screen
+- Role-based FCM routing: `new_order` → store popup; `delivery_assigned` → delivery popup
+- Real data throughout: order address, items, delivery fee, payment method all from backend
+
+### What needs real-device testing:
+- `delivery_assigned` FCM arriving while app is in background/killed (full-screen-intent wake)
+- GPS streaming on actual device (emulator GPS is simulated)
+- `PATCH /delivery/me/fcm-token` — needs delivery boy uid to be in a store's delivery_boys node
+
+### NEXT TIME — START HERE:
+**Phase 6.1 — Admin Dashboard Flutter Web**
+1. Run: `flutter create admin_dashboard --platforms web`
+2. Set package: `com.dhav.admin`
+3. Add: `firebase_core`, `firebase_auth`, `http`, `provider`, `google_fonts`, `fl_chart`
+4. Build: Login screen → Dashboard home with metrics from `GET /admin/analytics/summary`
 
 ## Session 2026-05-18 — Phase 4 Customer App MVP (Figma → Flutter, fully wired)
 

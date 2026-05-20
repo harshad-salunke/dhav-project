@@ -17,6 +17,7 @@ import 'api_client.dart';
 ///   "earning": "42.50"
 /// }
 typedef IncomingOrderHandler = void Function(Map<String, String> data);
+typedef DeliveryAssignedHandler = void Function(Map<String, String> data);
 
 @pragma('vm:entry-point')
 Future<void> _backgroundHandler(RemoteMessage message) async {
@@ -34,6 +35,7 @@ class FcmService {
   final _localNotifs = FlutterLocalNotificationsPlugin();
 
   IncomingOrderHandler? onIncomingOrder;
+  DeliveryAssignedHandler? onDeliveryAssigned;
   StreamSubscription<RemoteMessage>? _fgSub;
   StreamSubscription<RemoteMessage>? _openSub;
 
@@ -88,6 +90,9 @@ class FcmService {
     if (data['type'] == 'new_order') {
       _triggerOrderAlert(data, notif: message.notification);
       onIncomingOrder?.call(data);
+    } else if (data['type'] == 'delivery_assigned') {
+      _triggerDeliveryAlert(data, notif: message.notification);
+      onDeliveryAssigned?.call(data);
     }
   }
 
@@ -134,6 +139,45 @@ class FcmService {
     );
   }
 
+  Future<void> _triggerDeliveryAlert(
+    Map<String, String> data, {
+    RemoteNotification? notif,
+  }) async {
+    try {
+      await _player.play(AssetSource('sounds/order_alert.mp3'),
+          volume: 1.0, mode: PlayerMode.lowLatency);
+    } catch (e) {
+      if (kDebugMode) print('delivery alert sound failed: $e');
+    }
+    try {
+      final hasVib = await Vibration.hasVibrator();
+      if (hasVib) {
+        Vibration.vibrate(
+            pattern: [0, 400, 200, 400], intensities: [0, 255, 0, 255]);
+      }
+    } catch (_) {}
+
+    const androidDetails = AndroidNotificationDetails(
+      _incomingChannelId,
+      'Incoming Orders',
+      channelDescription: 'High-priority alerts for new orders',
+      importance: Importance.max,
+      priority: Priority.max,
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.call,
+      visibility: NotificationVisibility.public,
+    );
+    const details = NotificationDetails(android: androidDetails);
+
+    await _localNotifs.show(
+      data['order_id'].hashCode,
+      notif?.title ?? 'New Delivery Assignment!',
+      notif?.body ?? 'You have a new delivery assignment',
+      details,
+      payload: data['order_id'],
+    );
+  }
+
   /// Returns the current FCM token. Caller must POST it to /stores/me/fcm-token.
   Future<String?> getToken() => FirebaseMessaging.instance.getToken();
 
@@ -148,9 +192,27 @@ class FcmService {
     }
   }
 
-  /// Listen for token rotation and re-sync.
+  /// Pushes the latest FCM token for the signed-in delivery boy.
+  Future<void> syncDeliveryTokenToBackend() async {
+    final token = await getToken();
+    if (token == null) return;
+    try {
+      await _api.patch('/delivery/me/fcm-token', body: {'fcm_token': token});
+    } catch (e) {
+      if (kDebugMode) print('syncDeliveryTokenToBackend failed: $e');
+    }
+  }
+
+  /// Listen for token rotation and re-sync (store owner).
   void listenForTokenRefresh() {
     FirebaseMessaging.instance.onTokenRefresh.listen((_) => syncTokenToBackend());
+  }
+
+  /// Listen for token rotation and re-sync (delivery boy).
+  void listenForDeliveryTokenRefresh() {
+    FirebaseMessaging.instance
+        .onTokenRefresh
+        .listen((_) => syncDeliveryTokenToBackend());
   }
 
   Future<void> dispose() async {

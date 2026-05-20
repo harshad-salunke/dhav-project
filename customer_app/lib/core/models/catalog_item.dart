@@ -21,6 +21,18 @@ class CatalogItem {
     this.price,
   });
 
+  CatalogItem copyWith({bool? isAvailable}) => CatalogItem(
+        id: id,
+        name: name,
+        nameHindi: nameHindi,
+        nameMarathi: nameMarathi,
+        category: category,
+        unit: unit,
+        imageUrl: imageUrl,
+        isAvailable: isAvailable ?? this.isAvailable,
+        price: price,
+      );
+
   factory CatalogItem.fromJson(Map<String, dynamic> j) => CatalogItem(
         id: j['id'] ?? j['item_id'] ?? '',
         name: j['name'] ?? '',

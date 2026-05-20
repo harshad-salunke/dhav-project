@@ -62,6 +62,10 @@ class PlaceOrderRequest(BaseModel):
     items: List[OrderItem]
 
 
+class DirectOrderRequest(PlaceOrderRequest):
+    store_id: str
+
+
 class AssignDeliveryBoyRequest(BaseModel):
     delivery_boy_id: str
 

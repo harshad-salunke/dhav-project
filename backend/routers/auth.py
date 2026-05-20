@@ -13,7 +13,6 @@ VALID_ROLES = {"customer", "store_owner", "delivery", "admin"}
 
 def _verify_firebase_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> dict:
     try:
-        print(credentials.credentials)
         return firebase_auth.verify_id_token(credentials.credentials)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")

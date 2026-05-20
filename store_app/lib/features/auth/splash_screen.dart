@@ -48,6 +48,8 @@ class _SplashScreenState extends State<SplashScreen>
         fcmService.listenForTokenRefresh();
         Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
       } else if (user.isDeliveryBoy) {
+        fcmService.syncDeliveryTokenToBackend();
+        fcmService.listenForDeliveryTokenRefresh();
         Navigator.pushReplacementNamed(context, AppRoutes.deliveryHome);
       } else {
         // Default role (customer / first-time user) — let them self-onboard a store.

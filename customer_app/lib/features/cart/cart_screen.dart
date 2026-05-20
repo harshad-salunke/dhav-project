@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../../core/models/order.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -35,12 +36,23 @@ class _CartScreenState extends State<CartScreen> {
 
     setState(() => _placing = true);
     final orders = context.read<OrderProvider>();
-    final order = await orders.placeOrder(
-      items: cart.toOrderItems(),
-      deliveryAddress: _addressCtrl.text.trim(),
-      deliveryLat: cart.deliveryLat,
-      deliveryLng: cart.deliveryLng,
-    );
+    final CustomerOrder? order;
+    if (cart.storeId != null) {
+      order = await orders.placeDirectOrder(
+        items: cart.toOrderItems(),
+        deliveryAddress: _addressCtrl.text.trim(),
+        storeId: cart.storeId!,
+        deliveryLat: cart.deliveryLat,
+        deliveryLng: cart.deliveryLng,
+      );
+    } else {
+      order = await orders.placeOrder(
+        items: cart.toOrderItems(),
+        deliveryAddress: _addressCtrl.text.trim(),
+        deliveryLat: cart.deliveryLat,
+        deliveryLng: cart.deliveryLng,
+      );
+    }
 
     if (!mounted) return;
     setState(() => _placing = false);

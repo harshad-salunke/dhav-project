@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "mcp__claude_ai_Figma__get_screenshot",
-      "Bash(flutter pub *)"
+      "Bash(flutter pub *)",
+      "mcp__claude_ai_Figma__get_metadata",
+      "Bash(flutter analyze *)",
+      "Bash(.venv\\\\Scripts\\\\python -c \"from services.geofencing import find_nearby_stores, find_all_stores_in_radius; from routers.catalog import router; print\\('OK'\\)\")"
     ]
   }
 }

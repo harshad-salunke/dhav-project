@@ -5,7 +5,6 @@ import '../../core/models/catalog_item.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/widgets/dhav_bottom_nav.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -149,16 +148,8 @@ class _SearchScreenState extends State<SearchScreen> {
           ],
         ),
       ),
-      // Floating cart bar
-      bottomNavigationBar: cart.isEmpty
-          ? const DhavBottomNav(currentIndex: 1)
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _CartBar(cart: cart),
-                const DhavBottomNav(currentIndex: 1),
-              ],
-            ),
+      // Floating cart bar only — bottom nav is in MainShell
+      bottomNavigationBar: cart.isEmpty ? null : _CartBar(cart: cart),
     );
   }
 

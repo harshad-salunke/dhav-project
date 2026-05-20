@@ -3,12 +3,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/constants/app_routes.dart';
 import '../../core/models/order.dart';
 import '../../core/providers/delivery_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/services/location_ws_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import 'delivery_completion_screen.dart';
 
 class DeliveryAssignmentScreen extends StatefulWidget {
   final String? orderId;
@@ -78,10 +80,23 @@ class _DeliveryAssignmentScreenState extends State<DeliveryAssignmentScreen> {
   Future<void> _markDelivered() async {
     if (_order == null || _busy) return;
     setState(() => _busy = true);
+    final order = _order!;
     try {
-      await context.read<DeliveryProvider>().markDelivered(_order!.orderId);
+      await context.read<DeliveryProvider>().markDelivered(order.orderId);
       await _streamer.stop();
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.deliveryCompletion,
+          (route) => route.settings.name == AppRoutes.deliveryHome,
+          arguments: DeliveryCompletionArgs(
+            orderId: order.orderId,
+            earnings: order.deliveryFee,
+            customerArea: order.customerAddress.area,
+            itemCount: order.itemCount,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);

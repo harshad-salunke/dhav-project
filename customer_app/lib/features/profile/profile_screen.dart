@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/widgets/dhav_bottom_nav.dart';
+import '../../core/widgets/main_shell.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -11,6 +13,7 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final catalog = context.watch<CatalogProvider>();
     final user = auth.user;
 
     return Scaffold(
@@ -84,6 +87,12 @@ class ProfileScreen extends StatelessWidget {
                 title: 'My Account',
                 items: [
                   _MenuItem(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit Profile',
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/profile-setup'),
+                  ),
+                  _MenuItem(
                     icon: Icons.location_on_outlined,
                     label: 'Saved Addresses',
                     onTap: () {},
@@ -91,14 +100,21 @@ class ProfileScreen extends StatelessWidget {
                   _MenuItem(
                     icon: Icons.receipt_long_outlined,
                     label: 'Order History',
-                    onTap: () =>
-                        Navigator.pushNamed(context, '/orders'),
+                    onTap: () => MainShell.of(context)?.switchTab(2),
                   ),
                   _MenuItem(
                     icon: Icons.notifications_outlined,
                     label: 'Notifications',
                     onTap: () =>
                         Navigator.pushNamed(context, '/notifications'),
+                  ),
+                  _MenuItem(
+                    icon: Icons.storefront_outlined,
+                    label: 'Nearby Active Stores',
+                    trailing: catalog.nearbyStores.isEmpty
+                        ? null
+                        : '${catalog.nearbyStores.length}',
+                    onTap: () => _showNearbyStores(context, catalog),
                   ),
                 ],
               ),
@@ -191,7 +207,15 @@ class ProfileScreen extends StatelessWidget {
           ],
         ),
       ),
-      bottomNavigationBar: const DhavBottomNav(currentIndex: 3),
+    );
+  }
+
+  void _showNearbyStores(BuildContext context, CatalogProvider catalog) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _NearbyStoresSheet(catalog: catalog),
     );
   }
 
@@ -371,6 +395,371 @@ class _MenuItem extends StatelessWidget {
           : const Icon(Icons.chevron_right_rounded,
               color: AppColors.textHint, size: 18),
       onTap: onTap,
+    );
+  }
+}
+
+// ── Nearby Stores bottom sheet with List + Zone Map tabs ──────────────────────
+
+class _NearbyStoresSheet extends StatefulWidget {
+  final CatalogProvider catalog;
+  const _NearbyStoresSheet({required this.catalog});
+
+  @override
+  State<_NearbyStoresSheet> createState() => _NearbyStoresSheetState();
+}
+
+class _NearbyStoresSheetState extends State<_NearbyStoresSheet>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.72,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: Row(
+                children: [
+                  Text('Nearby Stores',
+                      style: GoogleFonts.inter(
+                          fontSize: 18, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text('${widget.catalog.nearbyStores.length} active',
+                        style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            TabBar(
+              controller: _tabs,
+              labelStyle:
+                  GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600),
+              unselectedLabelStyle:
+                  GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500),
+              labelColor: AppColors.primary,
+              unselectedLabelColor: AppColors.textSecondary,
+              indicatorColor: AppColors.primary,
+              indicatorSize: TabBarIndicatorSize.label,
+              tabs: const [
+                Tab(text: 'List'),
+                Tab(text: 'Zone Map'),
+              ],
+            ),
+            const Divider(height: 1, color: AppColors.divider),
+            Expanded(
+              child: TabBarView(
+                controller: _tabs,
+                children: [
+                  _NearbyStoresList(
+                      catalog: widget.catalog, scrollCtrl: scrollCtrl),
+                  _StoreZoneMap(catalog: widget.catalog),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── List tab ──────────────────────────────────────────────────────────────────
+
+class _NearbyStoresList extends StatelessWidget {
+  final CatalogProvider catalog;
+  final ScrollController scrollCtrl;
+  const _NearbyStoresList(
+      {required this.catalog, required this.scrollCtrl});
+
+  @override
+  Widget build(BuildContext context) {
+    if (catalog.nearbyStores.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.store_outlined, size: 48, color: AppColors.textHint),
+            const SizedBox(height: 12),
+            Text(
+              catalog.hasLocation
+                  ? 'No active stores in your area yet'
+                  : 'Open the Home tab first to detect location',
+              style: GoogleFonts.inter(
+                  fontSize: 14, color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      controller: scrollCtrl,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: catalog.nearbyStores.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, i) {
+        final s = catalog.nearbyStores[i];
+        final verified = s['is_verified'] as bool? ?? false;
+        final dist = (s['distance_km'] as num?)?.toDouble() ?? 0;
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.border, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.store_outlined,
+                    color: AppColors.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            s['name']?.toString() ?? 'Kirana Store',
+                            style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary),
+                          ),
+                        ),
+                        if (verified)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.success.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text('Verified',
+                                style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.success)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(s['area']?.toString() ?? '',
+                        style: GoogleFonts.inter(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('${dist.toStringAsFixed(1)} km',
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── Zone Map tab ──────────────────────────────────────────────────────────────
+
+class _StoreZoneMap extends StatelessWidget {
+  final CatalogProvider catalog;
+  static const double _radiusKm = 10.0;
+
+  const _StoreZoneMap({required this.catalog});
+
+  Set<Marker> _markers() {
+    final out = <Marker>{};
+    for (final s in catalog.allNearbyStores) {
+      final lat = (s['lat'] as num).toDouble();
+      final lng = (s['lng'] as num).toDouble();
+      final isActive = (s['is_active'] as bool? ?? false) &&
+          !(s['is_suspended'] as bool? ?? false);
+      out.add(Marker(
+        markerId: MarkerId(s['store_id'] as String),
+        position: LatLng(lat, lng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          isActive ? BitmapDescriptor.hueGreen : 195.0,
+        ),
+        infoWindow: InfoWindow(
+          title: s['name']?.toString() ?? 'Store',
+          snippet: isActive ? 'Active' : 'Inactive',
+        ),
+      ));
+    }
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lat = catalog.userLat;
+    final lng = catalog.userLng;
+
+    if (lat == null || lng == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.location_off_outlined,
+                  size: 48, color: AppColors.textHint),
+              const SizedBox(height: 12),
+              Text(
+                'Open the Home tab first so DHAV can detect your location.',
+                style: GoogleFonts.inter(
+                    fontSize: 14, color: AppColors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final userPos = LatLng(lat, lng);
+    return Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition:
+              CameraPosition(target: userPos, zoom: 13.0),
+          markers: _markers(),
+          circles: {
+            Circle(
+              circleId: const CircleId('delivery_zone'),
+              center: userPos,
+              radius: _radiusKm * 1000,
+              fillColor: Colors.blue.withValues(alpha: 0.07),
+              strokeColor: Colors.blue.withValues(alpha: 0.45),
+              strokeWidth: 2,
+            ),
+          },
+          myLocationEnabled: true,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+          mapToolbarEnabled: false,
+        ),
+        // Legend
+        Positioned(
+          bottom: 16,
+          left: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2))
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _LegendDot(color: const Color(0xFF2E7D32), label: 'Active store'),
+                const SizedBox(height: 4),
+                _LegendDot(
+                    color: const Color(0xFF90CAF9), label: 'Inactive store'),
+                const SizedBox(height: 4),
+                _LegendDot(
+                    color: Colors.blue.withValues(alpha: 0.3),
+                    label: '${_radiusKm.toInt()} km zone',
+                    isCircle: true),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  final bool isCircle;
+  const _LegendDot(
+      {required this.color, required this.label, this.isCircle = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: isCircle ? BoxShape.circle : BoxShape.circle,
+            border: isCircle
+                ? Border.all(color: Colors.blue, width: 1.5)
+                : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label,
+            style: GoogleFonts.inter(
+                fontSize: 11, color: AppColors.textSecondary)),
+      ],
     );
   }
 }

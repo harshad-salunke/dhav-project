@@ -6,7 +6,6 @@ import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/widgets/dhav_bottom_nav.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -23,7 +22,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
-    context.read<OrderProvider>().loadHistory();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<OrderProvider>().loadHistory();
+    });
   }
 
   @override
@@ -81,7 +82,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
                     showReorder: true),
               ],
             ),
-      bottomNavigationBar: const DhavBottomNav(currentIndex: 2),
     );
   }
 }

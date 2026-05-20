@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from firebase_admin import db
 
 from models.order import (
-    PlaceOrderRequest, RejectOrderRequest, AssignDeliveryBoyRequest, ORDER_TRANSITIONS
+    PlaceOrderRequest, DirectOrderRequest,
+    RejectOrderRequest, AssignDeliveryBoyRequest, ORDER_TRANSITIONS
 )
 from models.user import TokenVerifyResponse
 from dependencies import get_current_user, require_role
@@ -95,6 +96,65 @@ async def place_order(
         customer_id=user.uid,
     )
     return {"order_id": order_id, "status": "broadcasting"}
+
+
+# ── Place Direct Order (specific store) ────────────────────────────────────────
+
+@router.post("/direct", status_code=201)
+async def place_direct_order(
+    body: DirectOrderRequest,
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    """Customer orders directly from a chosen store — no broadcast waves."""
+    store_node = db.reference(f"stores/{body.store_id}").get()
+    if not store_node:
+        raise HTTPException(status_code=404, detail="Store not found")
+    if not store_node.get("is_active"):
+        raise HTTPException(status_code=400, detail="Store is not currently active")
+    if store_node.get("is_suspended"):
+        raise HTTPException(status_code=400, detail="Store is suspended")
+
+    total_product = sum(item.total_price for item in body.items)
+    platform_fee_amount = round(total_product * settings.platform_fee_percentage / 100, 2)
+    order_id = new_id()
+
+    order_data = {
+        "order_id": order_id,
+        "customer_id": user.uid,
+        "customer_address": body.customer_address.model_dump(),
+        "items": [i.model_dump() for i in body.items],
+        "total_product_amount": total_product,
+        "delivery_fee": 0.0,
+        "total_customer_amount": total_product,
+        "platform_fee_percentage": settings.platform_fee_percentage,
+        "platform_fee_amount": platform_fee_amount,
+        "platform_fee_settled": False,
+        "payment_method": "cod",
+        "status": "broadcasting",
+        "broadcast_wave": 1,
+        "broadcast_radius_km": 0.0,
+        "broadcast_store_ids": [body.store_id],
+        "rejected_store_ids": [],
+        "timed_out_store_ids": [],
+        "accepted_by_store_id": None,
+        "accepted_at": None,
+        "assigned_delivery_boy_id": None,
+        "delivery_boy_name": None,
+        "delivery_boy_phone": None,
+        "ws_channel_id": None,
+        "estimated_delivery_minutes": 30,
+        "delivered_at": None,
+        "failure_reason": None,
+        "created_at": now_ms(),
+        "is_direct_order": True,
+    }
+    db.reference(f"orders/{order_id}").set(order_data)
+
+    fcm_token = store_node.get("fcm_token")
+    if fcm_token:
+        send_new_order_to_stores([fcm_token], order_id, len(body.items), total_product)
+
+    return {"order_id": order_id, "status": "broadcasting", "store_id": body.store_id}
 
 
 # ── Get Order ──────────────────────────────────────────────────────────────────

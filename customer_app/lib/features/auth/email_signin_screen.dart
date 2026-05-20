@@ -23,9 +23,7 @@ class _EmailSignInScreenState extends State<EmailSignInScreen> {
     final ok = await auth.signInWithEmail(_emailCtrl.text.trim(), _passCtrl.text);
     if (!mounted) return;
     if (ok) {
-      final user = auth.user!;
-      Navigator.pushReplacementNamed(
-          context, user.profileComplete ? '/home' : '/profile-setup');
+      Navigator.pushReplacementNamed(context, '/home');
     } else if (auth.error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(auth.error!), backgroundColor: AppColors.error));

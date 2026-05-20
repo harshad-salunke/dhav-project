@@ -19,9 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final ok = await auth.signInWithGoogle();
     if (!mounted) return;
     if (ok) {
-      final user = auth.user!;
-      Navigator.pushReplacementNamed(
-          context, user.profileComplete ? '/home' : '/profile-setup');
+      Navigator.pushReplacementNamed(context, '/home');
     } else if (auth.error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(auth.error!), backgroundColor: AppColors.error));

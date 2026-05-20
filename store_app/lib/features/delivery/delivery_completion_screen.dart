@@ -5,11 +5,28 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
 import '../../core/constants/app_routes.dart';
 
+/// Arguments passed via Navigator to DeliveryCompletionScreen.
+class DeliveryCompletionArgs {
+  final String orderId;
+  final double earnings;
+  final String customerArea;
+  final int itemCount;
+
+  const DeliveryCompletionArgs({
+    required this.orderId,
+    required this.earnings,
+    required this.customerArea,
+    required this.itemCount,
+  });
+}
+
 class DeliveryCompletionScreen extends StatefulWidget {
-  const DeliveryCompletionScreen({super.key});
+  final DeliveryCompletionArgs? args;
+  const DeliveryCompletionScreen({super.key, this.args});
 
   @override
-  State<DeliveryCompletionScreen> createState() => _DeliveryCompletionScreenState();
+  State<DeliveryCompletionScreen> createState() =>
+      _DeliveryCompletionScreenState();
 }
 
 class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
@@ -22,9 +39,12 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
   void initState() {
     super.initState();
     HapticFeedback.heavyImpact();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
-    _scaleAnim = CurvedAnimation(parent: _controller, curve: Curves.elasticOut);
-    _fadeAnim = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+    _controller = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
+    _scaleAnim =
+        CurvedAnimation(parent: _controller, curve: Curves.elasticOut);
+    _fadeAnim =
+        CurvedAnimation(parent: _controller, curve: Curves.easeIn);
     _controller.forward();
   }
 
@@ -37,6 +57,14 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final a = widget.args;
+    final shortId = a != null
+        ? a.orderId.substring(0, 8).toUpperCase()
+        : '—';
+    final earnings = a?.earnings ?? 0.0;
+    final area = a?.customerArea ?? 'customer';
+    final items = a?.itemCount ?? 0;
+
     return Scaffold(
       backgroundColor: c.scaffold,
       body: SafeArea(
@@ -46,7 +74,7 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
             children: [
               const Spacer(),
 
-              // Success animation circle
+              // ── Success animation circle ───────────────────────────────
               ScaleTransition(
                 scale: _scaleAnim,
                 child: Container(
@@ -55,9 +83,12 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: AppColors.green.withValues(alpha: 0.1),
-                    border: Border.all(color: AppColors.green.withValues(alpha: 0.3), width: 3),
+                    border: Border.all(
+                        color: AppColors.green.withValues(alpha: 0.3),
+                        width: 3),
                   ),
-                  child: const Icon(Icons.check_circle_rounded, color: AppColors.green, size: 64),
+                  child: const Icon(Icons.check_circle_rounded,
+                      color: AppColors.green, size: 64),
                 ),
               ),
 
@@ -67,15 +98,17 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
                 opacity: _fadeAnim,
                 child: Column(
                   children: [
-                    Text(
-                      'Delivered!',
-                      style: GoogleFonts.inter(fontSize: 32, fontWeight: FontWeight.w900, color: c.textPrimary),
-                    ),
+                    Text('Delivered!',
+                        style: GoogleFonts.inter(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            color: c.textPrimary)),
                     const SizedBox(height: 8),
                     Text(
-                      'Order #OD-9928 has been delivered\nsuccessfully to Priya Sharma.',
+                      'Order #$shortId delivered to $area.',
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(fontSize: 15, color: c.textHint, height: 1.6),
+                      style: GoogleFonts.inter(
+                          fontSize: 15, color: c.textHint, height: 1.6),
                     ),
                   ],
                 ),
@@ -83,7 +116,7 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
 
               const SizedBox(height: 32),
 
-              // Earning card
+              // ── Earnings card ──────────────────────────────────────────
               FadeTransition(
                 opacity: _fadeAnim,
                 child: Container(
@@ -99,16 +132,28 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
                   ),
                   child: Column(
                     children: [
-                      Text('YOU EARNED', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white70, letterSpacing: 2)),
+                      Text('YOU EARNED',
+                          style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white70,
+                              letterSpacing: 2)),
                       const SizedBox(height: 8),
-                      Text('₹55.00', style: GoogleFonts.inter(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.white)),
+                      Text(
+                        '₹${earnings.toStringAsFixed(2)}',
+                        style: GoogleFonts.inter(
+                            fontSize: 40,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white),
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _EarnChip(label: 'Distance', value: '2.0 km'),
-                          _EarnChip(label: 'Time', value: '14 min'),
-                          _EarnChip(label: 'Rating', value: '5.0 ★'),
+                          _EarnChip(label: 'Items', value: '$items'),
+                          _EarnChip(label: 'Area', value: area),
+                          _EarnChip(
+                              label: 'Status', value: '✓ Done'),
                         ],
                       ),
                     ],
@@ -118,26 +163,32 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
 
               const SizedBox(height: 20),
 
-              // Today's summary
+              // ── Quick summary card ─────────────────────────────────────
               FadeTransition(
                 opacity: _fadeAnim,
                 child: Container(
                   padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: c.card, borderRadius: BorderRadius.circular(16)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  decoration: BoxDecoration(
+                      color: c.card,
+                      borderRadius: BorderRadius.circular(16)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Text("TODAY'S SUMMARY", style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: c.textHint, letterSpacing: 1.5)),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _SummaryItem(label: 'Deliveries', value: '9', icon: Icons.local_shipping_rounded, color: AppColors.primary),
-                          _SummaryItem(label: 'Earned', value: '₹535', icon: Icons.account_balance_wallet_rounded, color: AppColors.green),
-                          _SummaryItem(label: 'Distance', value: '14 km', icon: Icons.route_rounded, color: Colors.blue),
-                          _SummaryItem(label: 'Rating', value: '4.8', icon: Icons.star_rounded, color: Colors.amber),
-                        ],
-                      ),
+                      _SummaryItem(
+                          label: 'Earned',
+                          value: '₹${earnings.toStringAsFixed(0)}',
+                          icon: Icons.account_balance_wallet_rounded,
+                          color: AppColors.green),
+                      _SummaryItem(
+                          label: 'Items',
+                          value: '$items',
+                          icon: Icons.shopping_bag_rounded,
+                          color: AppColors.primary),
+                      _SummaryItem(
+                          label: 'Order',
+                          value: '#$shortId',
+                          icon: Icons.tag_rounded,
+                          color: Colors.blue),
                     ],
                   ),
                 ),
@@ -145,34 +196,49 @@ class _DeliveryCompletionScreenState extends State<DeliveryCompletionScreen>
 
               const Spacer(),
 
-              // Actions
+              // ── Actions ────────────────────────────────────────────────
               FadeTransition(
                 opacity: _fadeAnim,
                 child: Column(
                   children: [
                     GestureDetector(
-                      onTap: () => Navigator.pushNamedAndRemoveUntil(context, AppRoutes.deliveryHome, (_) => false),
+                      onTap: () => Navigator.pushNamedAndRemoveUntil(
+                          context, AppRoutes.deliveryHome, (_) => false),
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(14)),
+                        decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(14)),
                         child: Center(
-                          child: Text('BACK TO HOME', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1)),
+                          child: Text('BACK TO HOME',
+                              style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 1)),
                         ),
                       ),
                     ),
                     const SizedBox(height: 12),
                     GestureDetector(
-                      onTap: () => Navigator.pushNamed(context, AppRoutes.deliveryHistory),
+                      onTap: () => Navigator.pushNamed(
+                          context, AppRoutes.deliveryHistory),
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         decoration: BoxDecoration(
-                          border: Border.all(color: c.divider, width: 1.5),
+                          border: Border.all(
+                              color: c.divider, width: 1.5),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Center(
-                          child: Text('VIEW DELIVERY HISTORY', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: c.textSecondary, letterSpacing: 0.5)),
+                          child: Text('VIEW DELIVERY HISTORY',
+                              style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: c.textSecondary,
+                                  letterSpacing: 0.5)),
                         ),
                       ),
                     ),
@@ -196,8 +262,13 @@ class _EarnChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
-        Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.white70)),
+        Text(value,
+            style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Colors.white)),
+        Text(label,
+            style: GoogleFonts.inter(fontSize: 11, color: Colors.white70)),
       ],
     );
   }
@@ -208,7 +279,12 @@ class _SummaryItem extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
-  const _SummaryItem({required this.label, required this.value, required this.icon, required this.color});
+
+  const _SummaryItem(
+      {required this.label,
+      required this.value,
+      required this.icon,
+      required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -217,8 +293,14 @@ class _SummaryItem extends StatelessWidget {
       children: [
         Icon(icon, color: color, size: 22),
         const SizedBox(height: 6),
-        Text(value, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: c.textPrimary)),
-        Text(label, style: GoogleFonts.inter(fontSize: 11, color: c.textHint)),
+        Text(value,
+            style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: c.textPrimary),
+            overflow: TextOverflow.ellipsis),
+        Text(label,
+            style: GoogleFonts.inter(fontSize: 11, color: c.textHint)),
       ],
     );
   }

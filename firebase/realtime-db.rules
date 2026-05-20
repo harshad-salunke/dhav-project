@@ -13,6 +13,7 @@
       }
     },
     "orders": {
+      ".indexOn": ["customer_id", "store_id", "delivery_boy_id"],
       "$order_id": {
         ".read": "auth != null && (data.child('customer_id').val() === auth.uid || data.child('accepted_by_store_id').val() === auth.uid || root.child('admin_users').child(auth.uid).exists())",
         ".write": "root.child('admin_users').child(auth.uid).exists()"

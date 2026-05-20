@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from firebase_init import init_firebase
 from services.scheduler import start_scheduler
 from services.location_ws import location_ws_endpoint
-from routers import auth, customers, stores, orders, catalog, settlements, admin
+from routers import auth, customers, stores, orders, catalog, settlements, admin, delivery
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.include_router(orders.router, prefix="/orders", tags=["orders"])
 app.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 app.include_router(settlements.router, prefix="/settlements", tags=["settlements"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
+app.include_router(delivery.router, prefix="/delivery", tags=["delivery"])
 
 
 @app.websocket("/ws/order/{order_id}/location")

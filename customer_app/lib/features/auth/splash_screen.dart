@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/services/first_launch_service.dart';
 import '../../core/theme/app_colors.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -31,16 +32,22 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _bootstrap() async {
     await Future.delayed(const Duration(milliseconds: 1800));
     if (!mounted) return;
+
+    // Check if already logged in
     final auth = context.read<AuthProvider>();
     await auth.bootstrap();
     if (!mounted) return;
+
     if (auth.isLoggedIn) {
-      final user = auth.user!;
-      if (!user.profileComplete) {
-        Navigator.pushReplacementNamed(context, '/profile-setup');
-      } else {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
+      Navigator.pushReplacementNamed(context, '/home');
+      return;
+    }
+
+    // Not logged in — show onboarding on first launch, login screen after that
+    final isFirst = await FirstLaunchService.isFirstLaunch();
+    if (!mounted) return;
+    if (isFirst) {
+      Navigator.pushReplacementNamed(context, '/onboarding');
     } else {
       Navigator.pushReplacementNamed(context, '/login');
     }

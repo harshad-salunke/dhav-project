@@ -33,6 +33,45 @@ class OrderProvider extends ChangeNotifier {
         if (deliveryLng != null) 'delivery_lng': deliveryLng,
         'payment_method': 'cash',
       });
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        final order = CustomerOrder.fromJson(body);
+        _activeOrder = order;
+        notifyListeners();
+        return order;
+      } else {
+        _error = 'Failed to place order: ${resp.body}';
+        return null;
+      }
+    } catch (e) {
+      _error = e.toString();
+      return null;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<CustomerOrder?> placeDirectOrder({
+    required List<Map<String, dynamic>> items,
+    required String deliveryAddress,
+    required String storeId,
+    double? deliveryLat,
+    double? deliveryLng,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final resp = await ApiClient.post('/orders/direct', {
+        'store_id': storeId,
+        'items': items,
+        'delivery_address': deliveryAddress,
+        if (deliveryLat != null) 'delivery_lat': deliveryLat,
+        if (deliveryLng != null) 'delivery_lng': deliveryLng,
+        'payment_method': 'cash',
+      });
 
       if (resp.statusCode == 200 || resp.statusCode == 201) {
         final body = jsonDecode(resp.body) as Map<String, dynamic>;

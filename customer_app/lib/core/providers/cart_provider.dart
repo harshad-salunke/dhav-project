@@ -7,6 +7,8 @@ class CartProvider extends ChangeNotifier {
   String _deliveryAddress = '';
   double? _deliveryLat;
   double? _deliveryLng;
+  String? _storeId;
+  String? _storeName;
 
   List<CartItem> get items => List.unmodifiable(_items);
   int get itemCount => _items.fold(0, (sum, i) => sum + i.quantity);
@@ -15,6 +17,8 @@ class CartProvider extends ChangeNotifier {
   String get deliveryAddress => _deliveryAddress;
   double? get deliveryLat => _deliveryLat;
   double? get deliveryLng => _deliveryLng;
+  String? get storeId => _storeId;
+  String? get storeName => _storeName;
 
   double get subtotal => _items.fold(0, (sum, i) => sum + i.subtotal);
 
@@ -56,8 +60,23 @@ class CartProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setStore(String storeId, String storeName) {
+    _storeId = storeId;
+    _storeName = storeName;
+    notifyListeners();
+  }
+
+  void clearForNewStore() {
+    _items.clear();
+    _storeId = null;
+    _storeName = null;
+    notifyListeners();
+  }
+
   void clear() {
     _items.clear();
+    _storeId = null;
+    _storeName = null;
     notifyListeners();
   }
 
