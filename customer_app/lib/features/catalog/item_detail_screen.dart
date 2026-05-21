@@ -301,51 +301,69 @@ class _ItemDetailScreenState extends State<ItemDetailScreen>
                       ),
                     )
                   else
-                    Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withOpacity(0.35),
-                            blurRadius: 14,
-                            offset: const Offset(0, 4),
-                          )
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          _qtyBtn(
-                            Icons.remove,
-                            () => context
-                                .read<CartProvider>()
-                                .removeItem(item.id),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primary.withOpacity(0.35),
+                                blurRadius: 14,
+                                offset: const Offset(0, 4),
+                              )
+                            ],
                           ),
-                          Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 6),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 180),
-                              transitionBuilder: (child, anim) =>
-                                  ScaleTransition(
-                                      scale: anim, child: child),
-                              child: Text(
-                                '$qty',
-                                key: ValueKey(qty),
-                                style: GoogleFonts.inter(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
+                          child: Row(
+                            children: [
+                              _qtyBtn(
+                                Icons.remove,
+                                () => context
+                                    .read<CartProvider>()
+                                    .removeItem(item.id),
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 6),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 180),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(
+                                          scale: anim, child: child),
+                                  child: Text(
+                                    '$qty',
+                                    key: ValueKey(qty),
+                                    style: GoogleFonts.inter(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
                               ),
+                              _qtyBtn(
+                                Icons.add,
+                                () => _onAdd(context.read<CartProvider>()),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        GestureDetector(
+                          onTap: () => Navigator.pushNamed(context, '/cart'),
+                          child: Text(
+                            'View Cart →',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
                             ),
                           ),
-                          _qtyBtn(
-                            Icons.add,
-                            () => _onAdd(context.read<CartProvider>()),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                 ],
               ),

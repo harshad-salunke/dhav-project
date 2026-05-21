@@ -12,8 +12,11 @@ VALID_ROLES = {"customer", "store_owner", "delivery", "admin"}
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> TokenVerifyResponse:
+    token = credentials.credentials
+    if not token or token.lower() in ("null", "undefined", ""):
+        raise HTTPException(status_code=401, detail="Missing token")
     try:
-        decoded = firebase_auth.verify_id_token(credentials.credentials)
+        decoded = firebase_auth.verify_id_token(token, clock_skew_seconds=60)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 

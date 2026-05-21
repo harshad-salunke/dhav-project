@@ -15,11 +15,13 @@ import 'features/auth/login_screen.dart';
 import 'features/catalog/catalog_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/stores/store_detail_screen.dart';
+import 'features/customers/customer_detail_screen.dart';
 import 'features/stores/store_onboard_screen.dart';
 import 'features/stores/stores_screen.dart';
 import 'features/orders/orders_screen.dart';
 import 'features/customers/customers_screen.dart';
 import 'features/settlements/settlements_screen.dart';
+import 'features/coverage/coverage_screen.dart';
 
 // ─── Firebase Web config ───────────────────────────────────────────────────────
 // Replace these values with your actual Firebase project's web config.
@@ -71,6 +73,14 @@ class DhavAdminApp extends StatelessWidget {
                   child: StoreDetailScreen(storeId: storeId),
                 ),
               );
+            case AppRoutes.customerDetail:
+              final customerId = settings.arguments as String? ?? '';
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _ProtectedRoute(
+                  child: CustomerDetailScreen(customerId: customerId),
+                ),
+              );
             default:
               return null;
           }
@@ -91,6 +101,8 @@ class DhavAdminApp extends StatelessWidget {
               const _ProtectedRoute(child: SettlementsScreen()),
           AppRoutes.catalog: (_) =>
               const _ProtectedRoute(child: CatalogScreen()),
+          AppRoutes.coverage: (_) =>
+              const _ProtectedRoute(child: CoverageScreen()),
         },
       ),
     );

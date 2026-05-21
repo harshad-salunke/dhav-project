@@ -12,10 +12,21 @@ VALID_ROLES = {"customer", "store_owner", "delivery", "admin"}
 
 
 def _verify_firebase_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> dict:
+    token = credentials.credentials
+    if not token or token.lower() in ("null", "undefined", ""):
+        raise HTTPException(status_code=401, detail="Missing token")
     try:
-        return firebase_auth.verify_id_token(credentials.credentials)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return firebase_auth.verify_id_token(token, clock_skew_seconds=60)
+    except firebase_auth.ExpiredIdTokenError:
+        # Token expired but within grace window — try once more without grace
+        # (clock_skew_seconds already handled it above; this branch means truly expired)
+        raise HTTPException(status_code=401, detail="Token expired — please sign in again")
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(status_code=401, detail="Token revoked")
+    except firebase_auth.InvalidIdTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {e}")
 
 
 @router.post("/verify-token", response_model=TokenVerifyResponse)

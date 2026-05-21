@@ -1234,6 +1234,26 @@ class _InventoryTabState extends State<_InventoryTab> {
     }).toList();
   }
 
+  void _showAddFromCatalog() {
+    showDialog(
+      context: context,
+      builder: (_) => _AddFromCatalogDialog(
+        existingItemIds: _items.map((i) => i.itemId).toSet(),
+        api: widget.api,
+        onAdd: (newItems) {
+          setState(() => _items.insertAll(0, newItems));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+              '${newItems.length} item${newItems.length == 1 ? '' : 's'} added — press Save to persist',
+              style: GoogleFonts.inter(color: Colors.white),
+            ),
+            backgroundColor: AppColors.orange,
+          ));
+        },
+      ),
+    );
+  }
+
   Future<void> _saveInventory() async {
     setState(() => _saving = true);
     try {
@@ -1346,6 +1366,20 @@ class _InventoryTabState extends State<_InventoryTab> {
                 ),
               ),
               const SizedBox(width: 12),
+              OutlinedButton.icon(
+                onPressed: _showAddFromCatalog,
+                icon: const Icon(Icons.add_rounded, size: 15),
+                label: const Text('Add from Catalog'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.orange,
+                  side: const BorderSide(color: AppColors.orange),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              const SizedBox(width: 10),
               ElevatedButton.icon(
                 onPressed: _saving ? null : _saveInventory,
                 icon: _saving
@@ -1872,6 +1906,354 @@ class _ReviewCard extends StatelessWidget {
             child: const Text('Delete'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Add from Catalog Dialog ────────────────────────────────────────────────────
+
+class _AddFromCatalogDialog extends StatefulWidget {
+  final Set<String> existingItemIds;
+  final ApiClient api;
+  final ValueChanged<List<StoreInventoryItem>> onAdd;
+
+  const _AddFromCatalogDialog({
+    required this.existingItemIds,
+    required this.api,
+    required this.onAdd,
+  });
+
+  @override
+  State<_AddFromCatalogDialog> createState() => _AddFromCatalogDialogState();
+}
+
+class _AddFromCatalogDialogState extends State<_AddFromCatalogDialog> {
+  List<AdminCatalogItem> _catalogItems = [];
+  bool _loading = true;
+  String? _loadError;
+  String _search = '';
+  String? _filterCat;
+  final Set<String> _selected = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCatalog();
+  }
+
+  Future<void> _loadCatalog() async {
+    try {
+      final data = await widget.api.get('/admin/catalog/items');
+      final all = (data['items'] as List)
+          .map((i) => AdminCatalogItem.fromJson(i as Map<String, dynamic>))
+          .where((i) => i.isActive && !widget.existingItemIds.contains(i.itemId))
+          .toList();
+      if (mounted) setState(() { _catalogItems = all; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _loadError = e.toString(); _loading = false; });
+    }
+  }
+
+  List<String> get _categories {
+    final cats = _catalogItems.map((i) => i.category).toSet().toList()..sort();
+    return cats;
+  }
+
+  List<AdminCatalogItem> get _filtered {
+    return _catalogItems.where((item) {
+      final matchSearch = _search.isEmpty ||
+          item.name.toLowerCase().contains(_search.toLowerCase());
+      final matchCat = _filterCat == null || item.category == _filterCat;
+      return matchSearch && matchCat;
+    }).toList();
+  }
+
+  void _confirm() {
+    final newItems = _catalogItems
+        .where((i) => _selected.contains(i.itemId))
+        .map((i) => StoreInventoryItem(
+              itemId: i.itemId,
+              name: i.name,
+              category: i.category,
+              unit: i.unit,
+              isAvailable: true,
+              quantity: 1,
+            ))
+        .toList();
+    widget.onAdd(newItems);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+    return Dialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SizedBox(
+        width: 560,
+        height: 620,
+        child: Column(
+          children: [
+            // ── Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
+              child: Row(
+                children: [
+                  const Icon(Icons.add_circle_outline_rounded,
+                      color: AppColors.orange, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Add from Catalog',
+                    style: GoogleFonts.inter(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        color: AppColors.textMuted, size: 20),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: AppColors.border, height: 1),
+
+            // ── Search + Category chips
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Column(
+                children: [
+                  TextField(
+                    onChanged: (v) => setState(() => _search = v),
+                    style: GoogleFonts.inter(
+                        color: AppColors.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Search catalog items…',
+                      hintStyle: GoogleFonts.inter(
+                          color: AppColors.textMuted, fontSize: 13),
+                      prefixIcon: const Icon(Icons.search_rounded,
+                          color: AppColors.textMuted, size: 16),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      filled: true,
+                      fillColor: AppColors.card,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide:
+                              const BorderSide(color: AppColors.border)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide:
+                              const BorderSide(color: AppColors.border)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(
+                              color: AppColors.orange, width: 1.5)),
+                    ),
+                  ),
+                  if (_categories.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _CatChip(
+                            label: 'All',
+                            active: _filterCat == null,
+                            onTap: () => setState(() => _filterCat = null),
+                          ),
+                          ..._categories.map((cat) => Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: _CatChip(
+                                  label: cat,
+                                  active: _filterCat == cat,
+                                  onTap: () => setState(() =>
+                                      _filterCat = _filterCat == cat ? null : cat),
+                                ),
+                              )),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // ── Item list
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: AppColors.orange))
+                  : _loadError != null
+                      ? Center(
+                          child: Text(_loadError!,
+                              style: GoogleFonts.inter(
+                                  color: AppColors.red, fontSize: 12)))
+                      : filtered.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.inventory_2_outlined,
+                                      color: AppColors.textMuted, size: 36),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _search.isNotEmpty
+                                        ? 'No items match "$_search"'
+                                        : 'All catalog items already added',
+                                    style: GoogleFonts.inter(
+                                        color: AppColors.textMuted,
+                                        fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                              itemCount: filtered.length,
+                              itemBuilder: (ctx, i) {
+                                final item = filtered[i];
+                                final isSel =
+                                    _selected.contains(item.itemId);
+                                return InkWell(
+                                  onTap: () => setState(() => isSel
+                                      ? _selected.remove(item.itemId)
+                                      : _selected.add(item.itemId)),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: AnimatedContainer(
+                                    duration:
+                                        const Duration(milliseconds: 150),
+                                    margin: const EdgeInsets.only(top: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: isSel
+                                          ? AppColors.orange
+                                              .withValues(alpha: 0.08)
+                                          : AppColors.card,
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: isSel
+                                            ? AppColors.orange
+                                                .withValues(alpha: 0.5)
+                                            : AppColors.border,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: Checkbox(
+                                            value: isSel,
+                                            onChanged: (v) => setState(() =>
+                                                v == true
+                                                    ? _selected
+                                                        .add(item.itemId)
+                                                    : _selected.remove(
+                                                        item.itemId)),
+                                            activeColor: AppColors.orange,
+                                            side: const BorderSide(
+                                                color: AppColors.border,
+                                                width: 1.5),
+                                            materialTapTargetSize:
+                                                MaterialTapTargetSize
+                                                    .shrinkWrap,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.name,
+                                                style: GoogleFonts.inter(
+                                                    color:
+                                                        AppColors.textPrimary,
+                                                    fontSize: 13,
+                                                    fontWeight:
+                                                        FontWeight.w500),
+                                              ),
+                                              Text(
+                                                '${item.category} · ${item.unit}',
+                                                style: GoogleFonts.inter(
+                                                    color:
+                                                        AppColors.textMuted,
+                                                    fontSize: 11),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSel)
+                                          const Icon(
+                                              Icons.check_circle_rounded,
+                                              color: AppColors.orange,
+                                              size: 16),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+            ),
+
+            // ── Footer
+            const Divider(color: AppColors.border, height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              child: Row(
+                children: [
+                  Text(
+                    _selected.isEmpty
+                        ? 'Select items to add'
+                        : '${_selected.length} item${_selected.length == 1 ? '' : 's'} selected',
+                    style: GoogleFonts.inter(
+                        color: _selected.isEmpty
+                            ? AppColors.textMuted
+                            : AppColors.orange,
+                        fontSize: 12,
+                        fontWeight: _selected.isEmpty
+                            ? FontWeight.normal
+                            : FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text('Cancel',
+                        style: GoogleFonts.inter(
+                            color: AppColors.textSecondary)),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: _selected.isEmpty ? null : _confirm,
+                    icon: const Icon(Icons.add_rounded, size: 15),
+                    label: Text(_selected.isEmpty
+                        ? 'Add Items'
+                        : 'Add ${_selected.length}'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.orange,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: AppColors.border,
+                      disabledForegroundColor: AppColors.textMuted,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

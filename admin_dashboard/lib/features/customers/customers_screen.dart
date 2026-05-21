@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_client.dart';
 import '../../core/widgets/admin_sidebar.dart';
+import '../../core/constants/app_routes.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -207,61 +208,82 @@ class _CustomerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uid = customer['uid']?.toString() ?? '';
     return Container(
       decoration: const BoxDecoration(
           border: Border(top: BorderSide(color: AppColors.border))),
-      child: Padding(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 3,
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor:
-                        AppColors.orange.withValues(alpha: 0.15),
-                    child: Text(
-                      (customer['name'] ?? '?')
-                          .toString()
-                          .substring(0, 1)
-                          .toUpperCase(),
-                      style: GoogleFonts.inter(
-                          color: AppColors.orange,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600),
-                    ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: uid.isEmpty
+              ? null
+              : () => Navigator.pushNamed(
+                    context,
+                    AppRoutes.customerDetail,
+                    arguments: uid,
                   ),
-                  const SizedBox(width: 10),
-                  Text(customer['name'] ?? '—',
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundColor: AppColors.orange.withValues(alpha: 0.15),
+                        child: Text(
+                          (customer['name'] ?? '?')
+                              .toString()
+                              .substring(0, 1)
+                              .toUpperCase(),
+                          style: GoogleFonts.inter(
+                              color: AppColors.orange,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(customer['name'] ?? '—',
+                            style: GoogleFonts.inter(
+                                color: AppColors.textPrimary, fontSize: 13)),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(customer['email'] ?? '—',
                       style: GoogleFonts.inter(
-                          color: AppColors.textPrimary, fontSize: 13)),
-                ],
-              ),
+                          color: AppColors.textSecondary, fontSize: 12)),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(customer['phone'] ?? '—',
+                      style: GoogleFonts.inter(
+                          color: AppColors.textSecondary, fontSize: 12)),
+                ),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Text(
+                          (customer['total_orders'] ?? 0).toString(),
+                          style: GoogleFonts.inter(
+                              color: AppColors.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      if (uid.isNotEmpty)
+                        const Icon(Icons.chevron_right_rounded,
+                            color: AppColors.textMuted, size: 16),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              flex: 3,
-              child: Text(customer['email'] ?? '—',
-                  style: GoogleFonts.inter(
-                      color: AppColors.textSecondary, fontSize: 12)),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(customer['phone'] ?? '—',
-                  style: GoogleFonts.inter(
-                      color: AppColors.textSecondary, fontSize: 12)),
-            ),
-            Expanded(
-              child: Text(
-                  (customer['total_orders'] ?? 0).toString(),
-                  style: GoogleFonts.inter(
-                      color: AppColors.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600)),
-            ),
-          ],
+          ),
         ),
       ),
     );

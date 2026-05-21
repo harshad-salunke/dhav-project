@@ -44,7 +44,8 @@ class AuthService {
 
   Future<AppUser?> _verifyToken(User? user) async {
     if (user == null) return null;
-    final token = await user.getIdToken();
+    final token = await user.getIdToken(true); // forceRefresh — avoids expired cached tokens
+    if (token == null) return null;
     final resp = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/auth/verify-token'),
       headers: {

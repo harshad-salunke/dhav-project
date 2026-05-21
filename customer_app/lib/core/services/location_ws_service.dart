@@ -28,7 +28,7 @@ class LocationWsService {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final token = await user.getIdToken();
+      final token = await user.getIdToken(true);
 
       final uri = Uri.parse(
           '${ApiConfig.wsBaseUrl}/ws/order/$_orderId/location?role=customer&token=$token');

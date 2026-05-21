@@ -12,7 +12,7 @@ def _send(token: str, title: str, body: str, data: dict, high_priority: bool = F
             priority="high" if high_priority else "normal",
             notification=messaging.AndroidNotification(
                 sound="default",
-                channel_id="dhav_orders" if high_priority else "dhav_general",
+                channel_id="dhav_incoming_orders" if high_priority else "dhav_general",
                 default_vibrate_timings=high_priority,
             ),
         ),
@@ -36,7 +36,7 @@ def _send_multicast(tokens: list[str], title: str, body: str, data: dict,
             priority="high" if high_priority else "normal",
             notification=messaging.AndroidNotification(
                 sound="default",
-                channel_id="dhav_orders" if high_priority else "dhav_general",
+                channel_id="dhav_incoming_orders" if high_priority else "dhav_general",
                 default_vibrate_timings=high_priority,
             ),
         ),
@@ -55,7 +55,12 @@ def send_new_order_to_stores(store_tokens: list[str], order_id: str,
         store_tokens,
         title="New Order! 🛒",
         body=f"{item_count} items · ₹{total:.0f} — Accept now!",
-        data={"type": "new_order", "order_id": order_id},
+        data={
+            "type": "new_order",
+            "order_id": order_id,
+            "item_count": str(item_count),
+            "total": str(total),
+        },
         high_priority=True,
     )
 

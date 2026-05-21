@@ -15,10 +15,11 @@ class OrderItem {
 
   factory OrderItem.fromJson(Map<String, dynamic> j) => OrderItem(
         itemId: j['item_id'] ?? '',
-        name: j['name'] ?? '',
-        quantity: j['quantity'] ?? 1,
+        name: j['item_name'] as String? ?? j['name'] as String? ?? '',
+        quantity: (j['quantity'] as num?)?.toInt() ?? 1,
         unit: j['unit'] ?? '',
-        price: (j['price'] as num?)?.toDouble(),
+        price: (j['price_per_unit'] as num?)?.toDouble() ??
+            (j['price'] as num?)?.toDouble(),
       );
 }
 
@@ -63,6 +64,36 @@ class CustomerOrder {
 
   double get grandTotal => (productTotal ?? 0) + (deliveryFee ?? 0);
 
+  static String _parseAddress(Map<String, dynamic> j) {
+    final addr = j['customer_address'];
+    if (addr is Map<String, dynamic>) {
+      final parts = <String>[
+        if ((addr['flat_building'] as String? ?? '').isNotEmpty)
+          addr['flat_building'] as String,
+        addr['area'] as String? ?? '',
+        addr['city'] as String? ?? '',
+      ];
+      return parts.where((p) => p.isNotEmpty).join(', ');
+    }
+    return j['delivery_address'] as String? ?? '';
+  }
+
+  static double? _parseLat(Map<String, dynamic> j) {
+    final addr = j['customer_address'];
+    if (addr is Map<String, dynamic>) {
+      return (addr['lat'] as num?)?.toDouble();
+    }
+    return (j['delivery_lat'] as num?)?.toDouble();
+  }
+
+  static double? _parseLng(Map<String, dynamic> j) {
+    final addr = j['customer_address'];
+    if (addr is Map<String, dynamic>) {
+      return (addr['lng'] as num?)?.toDouble();
+    }
+    return (j['delivery_lng'] as num?)?.toDouble();
+  }
+
   factory CustomerOrder.fromJson(Map<String, dynamic> j) => CustomerOrder(
         orderId: j['order_id'] ?? '',
         customerId: j['customer_id'] ?? '',
@@ -70,9 +101,9 @@ class CustomerOrder {
         items: (j['items'] as List? ?? [])
             .map((i) => OrderItem.fromJson(i as Map<String, dynamic>))
             .toList(),
-        deliveryAddress: j['delivery_address'] ?? '',
-        deliveryLat: (j['delivery_lat'] as num?)?.toDouble(),
-        deliveryLng: (j['delivery_lng'] as num?)?.toDouble(),
+        deliveryAddress: CustomerOrder._parseAddress(j),
+        deliveryLat: CustomerOrder._parseLat(j),
+        deliveryLng: CustomerOrder._parseLng(j),
         productTotal: (j['product_total'] as num?)?.toDouble(),
         deliveryFee: (j['delivery_fee'] as num?)?.toDouble(),
         platformFee: (j['platform_fee_amount'] as num?)?.toDouble(),

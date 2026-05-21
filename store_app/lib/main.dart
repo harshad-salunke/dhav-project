@@ -53,14 +53,23 @@ Future<void> main() async {
 
   await fcmService.init();
 
-  // Store owner: new order alert → push incoming order popup.
-  fcmService.onIncomingOrder = (data) {
-    final orderId = data['order_id'];
-    if (orderId == null) return;
+  void navigateToIncomingOrder(String orderId) {
     navigatorKey.currentState?.pushNamed(
       AppRoutes.incomingOrder,
       arguments: orderId,
     );
+  }
+
+  // Store owner: new order FCM → push incoming order popup.
+  fcmService.onIncomingOrder = (data) {
+    final orderId = data['order_id'];
+    if (orderId == null) return;
+    navigateToIncomingOrder(orderId);
+  };
+
+  // Store owner: tapped local notification from tray → push incoming order popup.
+  fcmService.onNotificationTap = (orderId) {
+    navigateToIncomingOrder(orderId);
   };
 
   // Delivery boy: assignment alert → push delivery incoming assignment popup.

@@ -7,7 +7,8 @@ class ApiClient {
   static Future<Map<String, String>> _headers() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return {'Content-Type': 'application/json'};
-    final token = await user.getIdToken();
+    final token = await user.getIdToken(true); // always fresh — prevents 401 on expired tokens
+    if (token == null) return {'Content-Type': 'application/json'};
     return {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer $token',

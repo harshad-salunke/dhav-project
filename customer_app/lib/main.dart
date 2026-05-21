@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'core/constants/app_routes.dart';
+import 'core/providers/address_provider.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/cart_provider.dart';
 import 'core/providers/catalog_provider.dart';
@@ -22,6 +23,7 @@ import 'features/orders/broadcasting_screen.dart';
 import 'features/orders/order_accepted_screen.dart';
 import 'features/orders/order_tracking_screen.dart';
 import 'features/orders/order_history_screen.dart';
+import 'features/address/saved_addresses_screen.dart';
 import 'features/profile/profile_screen.dart';
 import 'features/search/search_screen.dart';
 import 'features/notifications/notifications_screen.dart';
@@ -56,6 +58,7 @@ class DhavCustomerApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AddressProvider()),
         ChangeNotifierProvider(create: (_) => CartProvider()),
         ChangeNotifierProvider(create: (_) => CatalogProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
@@ -81,6 +84,7 @@ class DhavCustomerApp extends StatelessWidget {
           AppRoutes.orderHistory: (_) => const OrderHistoryScreen(),
           AppRoutes.profile: (_) => const ProfileScreen(),
           AppRoutes.notifications: (_) => const NotificationsScreen(),
+          '/saved-addresses': (_) => const SavedAddressesScreen(),
         },
       ),
     );

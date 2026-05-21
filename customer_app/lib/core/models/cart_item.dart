@@ -10,8 +10,11 @@ class CartItem {
 
   Map<String, dynamic> toOrderItem() => {
         'item_id': item.id,
-        'name': item.name,
+        'item_name': item.name,
         'quantity': quantity,
         'unit': item.unit,
+        'price_per_unit': item.price ?? 0.0,
+        'total_price': subtotal,
+        'is_catalog_item': true,
       };
 }

@@ -17,9 +17,7 @@ class OrderProvider extends ChangeNotifier {
 
   Future<CustomerOrder?> placeOrder({
     required List<Map<String, dynamic>> items,
-    required String deliveryAddress,
-    double? deliveryLat,
-    double? deliveryLng,
+    required Map<String, dynamic> customerAddress,
   }) async {
     _loading = true;
     _error = null;
@@ -27,11 +25,8 @@ class OrderProvider extends ChangeNotifier {
 
     try {
       final resp = await ApiClient.post('/orders', {
+        'customer_address': customerAddress,
         'items': items,
-        'delivery_address': deliveryAddress,
-        if (deliveryLat != null) 'delivery_lat': deliveryLat,
-        if (deliveryLng != null) 'delivery_lng': deliveryLng,
-        'payment_method': 'cash',
       });
       if (resp.statusCode == 200 || resp.statusCode == 201) {
         final body = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -54,10 +49,8 @@ class OrderProvider extends ChangeNotifier {
 
   Future<CustomerOrder?> placeDirectOrder({
     required List<Map<String, dynamic>> items,
-    required String deliveryAddress,
+    required Map<String, dynamic> customerAddress,
     required String storeId,
-    double? deliveryLat,
-    double? deliveryLng,
   }) async {
     _loading = true;
     _error = null;
@@ -66,11 +59,8 @@ class OrderProvider extends ChangeNotifier {
     try {
       final resp = await ApiClient.post('/orders/direct', {
         'store_id': storeId,
+        'customer_address': customerAddress,
         'items': items,
-        'delivery_address': deliveryAddress,
-        if (deliveryLat != null) 'delivery_lat': deliveryLat,
-        if (deliveryLng != null) 'delivery_lng': deliveryLng,
-        'payment_method': 'cash',
       });
 
       if (resp.statusCode == 200 || resp.statusCode == 201) {

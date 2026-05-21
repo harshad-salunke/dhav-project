@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
 import '../theme/dhav_colors.dart';
 
@@ -12,59 +11,24 @@ class DhavBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Container(
-      decoration: BoxDecoration(
-        color: c.bottomNav,
-        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, -2))],
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          height: 64,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavItem(icon: Icons.home_rounded, label: 'Home', index: 0, currentIndex: currentIndex, onTap: onTap),
-              _NavItem(icon: Icons.receipt_long_rounded, label: 'Orders', index: 1, currentIndex: currentIndex, onTap: onTap),
-              _NavItem(icon: Icons.inventory_2_rounded, label: 'Inventory', index: 2, currentIndex: currentIndex, onTap: onTap),
-              _NavItem(icon: Icons.account_balance_wallet_rounded, label: 'Earnings', index: 3, currentIndex: currentIndex, onTap: onTap),
-              _NavItem(icon: Icons.person_rounded, label: 'Profile', index: 4, currentIndex: currentIndex, onTap: onTap),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int index;
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  const _NavItem({required this.icon, required this.label, required this.index, required this.currentIndex, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = index == currentIndex;
-    return GestureDetector(
-      onTap: () => onTap(index),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: isSelected ? AppColors.primary : AppColors.textMedium, size: 24),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              color: isSelected ? AppColors.primary : AppColors.textMedium,
-            ),
-          ),
-        ],
-      ),
+    return BottomNavigationBar(
+      currentIndex: currentIndex,
+      onTap: onTap,
+      type: BottomNavigationBarType.fixed,
+      backgroundColor: c.bottomNav,
+      selectedItemColor: AppColors.primary,
+      unselectedItemColor: AppColors.textMedium,
+      selectedFontSize: 11,
+      unselectedFontSize: 11,
+      selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
+      elevation: 8,
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+        BottomNavigationBarItem(icon: Icon(Icons.receipt_long_rounded), label: 'Orders'),
+        BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
+        BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_rounded), label: 'Earnings'),
+        BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+      ],
     );
   }
 }

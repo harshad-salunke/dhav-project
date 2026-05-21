@@ -25,8 +25,7 @@ class ApiClient {
       if (user == null) {
         throw ApiException(401, 'Not signed in');
       }
-      final token = await user.getIdToken();
-      print("final token : $token");
+      final token = await user.getIdToken(true); // forceRefresh — prevents 401 on expired tokens
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;

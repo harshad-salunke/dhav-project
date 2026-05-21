@@ -499,6 +499,38 @@ async def get_customer(uid: str, _: TokenVerifyResponse = Depends(_admin)):
     return user
 
 
+@router.get("/customers/{uid}/orders")
+async def get_customer_orders(
+    uid: str,
+    limit: int = Query(50, le=200),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    user = db.reference(f"users/{uid}").get()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    orders_node = db.reference("orders").get() or {}
+    customer_orders = [
+        o for o in orders_node.values()
+        if o.get("customer_uid") == uid or o.get("customer_id") == uid
+    ]
+    customer_orders.sort(key=lambda o: o.get("created_at", 0), reverse=True)
+
+    total = len(customer_orders)
+    delivered = sum(1 for o in customer_orders if o.get("status") == "delivered")
+    total_spent = sum(
+        o.get("total_amount", 0)
+        for o in customer_orders if o.get("status") == "delivered"
+    )
+
+    return {
+        "orders": customer_orders[:limit],
+        "total": total,
+        "delivered": delivered,
+        "total_spent": round(total_spent, 2),
+    }
+
+
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
 @router.get("/analytics/summary")

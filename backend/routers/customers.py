@@ -41,6 +41,23 @@ async def add_address(
     return {"status": "added", "total": len(addresses)}
 
 
+@router.patch("/me/addresses/{index}")
+async def update_address(
+    index: int,
+    body: dict,
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    addresses = db.reference(f"users/{user.uid}/saved_addresses").get() or []
+    if index < 0 or index >= len(addresses):
+        raise HTTPException(status_code=404, detail="Address index out of range")
+    allowed = {"label", "flat_building", "floor", "area", "landmark", "city", "pincode"}
+    for key in allowed:
+        if key in body:
+            addresses[index][key] = body[key]
+    db.reference(f"users/{user.uid}/saved_addresses").set(addresses)
+    return {"status": "updated"}
+
+
 @router.delete("/me/addresses/{index}")
 async def delete_address(
     index: int,

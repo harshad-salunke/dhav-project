@@ -38,34 +38,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await orders.loadStoreOrders();
   }
 
-  final List<Widget> _pages = const [
-    SizedBox.shrink(),
-    OrderListScreen(),
-    InventoryScreen(),
-    EarningsScreen(),
-    ProfileScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Scaffold(
       backgroundColor: c.scaffold,
-      body: _navIndex == 0 ? _buildDashboard(c) : _pages[_navIndex],
+      body: IndexedStack(
+        index: _navIndex,
+        children: [
+          _DashboardHome(onRefresh: _refresh),
+          const OrderListScreen(),
+          const InventoryScreen(),
+          const EarningsScreen(),
+          const ProfileScreen(),
+        ],
+      ),
       bottomNavigationBar: DhavBottomNav(
         currentIndex: _navIndex,
         onTap: (i) => setState(() => _navIndex = i),
       ),
     );
   }
+}
 
-  Widget _buildDashboard(DhavColors c) {
+class _DashboardHome extends StatelessWidget {
+  final Future<void> Function() onRefresh;
+  const _DashboardHome({required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final store = context.watch<StoreProvider>().store;
+    final title = store?.shopName.toUpperCase() ?? 'KIRANA PARTNER';
     return SafeArea(
       child: RefreshIndicator(
-        onRefresh: _refresh,
+        onRefresh: onRefresh,
         child: Column(
           children: [
-            _buildAppBar(c),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: c.card,
+                    child: Icon(Icons.person_rounded, color: c.textSecondary, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: c.textPrimary,
+                          letterSpacing: 2),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.pushNamed(context, AppRoutes.notifications),
+                    child: Stack(
+                      children: [
+                        Icon(Icons.notifications_rounded, color: c.textPrimary, size: 26),
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                                color: AppColors.red, shape: BoxShape.circle),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Expanded(
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -87,53 +138,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar(DhavColors c) {
-    final store = context.watch<StoreProvider>().store;
-    final title = store?.shopName.toUpperCase() ?? 'KIRANA PARTNER';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: c.card,
-            child: Icon(Icons.person_rounded, color: c.textSecondary, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              title,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: c.textPrimary,
-                  letterSpacing: 2),
-            ),
-          ),
-          GestureDetector(
-            onTap: () => Navigator.pushNamed(context, AppRoutes.notifications),
-            child: Stack(
-              children: [
-                Icon(Icons.notifications_rounded, color: c.textPrimary, size: 26),
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                        color: AppColors.red, shape: BoxShape.circle),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

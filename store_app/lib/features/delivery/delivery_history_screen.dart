@@ -231,7 +231,7 @@ class _DeliveryList extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       itemCount: deliveries.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) => _HistoryCard(data: deliveries[i]),
     );
   }

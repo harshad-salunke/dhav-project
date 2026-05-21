@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find ~/.pub-cache/hosted -path \"*/lottie-*/lib/src\" -maxdepth 6 -type d 2>/dev/null | head -5)",
+      "Read(//c/Users/Harshad Salunke/.pub-cache/**)"
+    ]
+  }
+}

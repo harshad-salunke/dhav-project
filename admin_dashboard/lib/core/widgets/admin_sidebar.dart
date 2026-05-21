@@ -15,16 +15,19 @@ class AdminSidebar extends StatelessWidget {
     _NavItem(icon: Icons.people_rounded, label: 'Customers', route: AppRoutes.customers),
     _NavItem(icon: Icons.account_balance_wallet_rounded, label: 'Settlements', route: AppRoutes.settlements),
     _NavItem(icon: Icons.inventory_2_rounded, label: 'Catalog', route: AppRoutes.catalog),
+    _NavItem(icon: Icons.radar_rounded, label: 'Coverage', route: AppRoutes.coverage),
   ];
 
   @override
   Widget build(BuildContext context) {
     final current = ModalRoute.of(context)?.settings.name ?? AppRoutes.dashboard;
-    // Treat store sub-routes as "Stores" for highlight purposes
+    // Treat sub-routes as parent route for highlight purposes
     final activeRoute = (current == AppRoutes.storeDetail ||
             current == AppRoutes.storeOnboard)
         ? AppRoutes.stores
-        : current;
+        : current == AppRoutes.customerDetail
+            ? AppRoutes.customers
+            : current;
 
     return Container(
       width: 220,

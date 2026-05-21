@@ -95,7 +95,8 @@ class ProfileScreen extends StatelessWidget {
                   _MenuItem(
                     icon: Icons.location_on_outlined,
                     label: 'Saved Addresses',
-                    onTap: () {},
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/saved-addresses'),
                   ),
                   _MenuItem(
                     icon: Icons.receipt_long_outlined,

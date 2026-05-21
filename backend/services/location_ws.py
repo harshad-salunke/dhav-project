@@ -14,8 +14,10 @@ _channels: dict[str, dict] = defaultdict(lambda: {"delivery": None, "customers":
 
 
 async def _verify_token(token: str) -> dict | None:
+    if not token or token.lower() in ("null", "undefined", ""):
+        return None
     try:
-        return firebase_auth.verify_id_token(token)
+        return firebase_auth.verify_id_token(token, clock_skew_seconds=60)
     except Exception:
         return None
 

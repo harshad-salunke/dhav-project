@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/order.dart';
+import '../../core/providers/address_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../address/address_selection_sheet.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -14,43 +16,33 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
-  final _addressCtrl = TextEditingController();
   bool _placing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final cart = context.read<CartProvider>();
-    _addressCtrl.text = cart.deliveryAddress;
-  }
 
   Future<void> _placeOrder() async {
     final cart = context.read<CartProvider>();
     if (cart.isEmpty) return;
-    if (_addressCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter a delivery address')));
+
+    final addrProvider = context.read<AddressProvider>();
+    if (addrProvider.selected == null) {
+      await AddressSelectionSheet.show(context,
+          onAddressSelected: () => setState(() {}));
       return;
     }
-    cart.setDeliveryAddress(_addressCtrl.text.trim());
 
     setState(() => _placing = true);
     final orders = context.read<OrderProvider>();
+    final customerAddress = addrProvider.selected!.toOrderAddress();
     final CustomerOrder? order;
     if (cart.storeId != null) {
       order = await orders.placeDirectOrder(
         items: cart.toOrderItems(),
-        deliveryAddress: _addressCtrl.text.trim(),
+        customerAddress: customerAddress,
         storeId: cart.storeId!,
-        deliveryLat: cart.deliveryLat,
-        deliveryLng: cart.deliveryLng,
       );
     } else {
       order = await orders.placeOrder(
         items: cart.toOrderItems(),
-        deliveryAddress: _addressCtrl.text.trim(),
-        deliveryLat: cart.deliveryLat,
-        deliveryLng: cart.deliveryLng,
+        customerAddress: customerAddress,
       );
     }
 
@@ -118,18 +110,11 @@ class _CartScreenState extends State<CartScreen> {
                               fontWeight: FontWeight.w700,
                               color: AppColors.textPrimary)),
                       const SizedBox(height: 8),
-                      TextField(
-                        controller: _addressCtrl,
-                        maxLines: 2,
-                        decoration: const InputDecoration(
-                          hintText:
-                              'Enter your full delivery address…',
-                          prefixIcon: Icon(Icons.location_on_outlined,
-                              color: AppColors.primary),
-                          alignLabelWithHint: true,
-                        ),
-                        onChanged: (v) =>
-                            cart.setDeliveryAddress(v),
+                      _AddressCard(
+                        onTap: () async {
+                          await AddressSelectionSheet.show(context,
+                              onAddressSelected: () => setState(() {}));
+                        },
                       ),
 
                       const SizedBox(height: 20),
@@ -199,6 +184,7 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Widget _buildPlaceOrderBar(CartProvider cart) {
+    final hasAddress = context.watch<AddressProvider>().selected != null;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
       decoration: const BoxDecoration(
@@ -213,9 +199,12 @@ class _CartScreenState extends State<CartScreen> {
                 width: 20,
                 child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2))
-            : Text('Place Order • ₹${cart.subtotal.toStringAsFixed(0)}',
-                style:
-                    GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700)),
+            : Text(
+                hasAddress
+                    ? 'Place Order • ₹${cart.subtotal.toStringAsFixed(0)}'
+                    : 'Add Address to Continue',
+                style: GoogleFonts.inter(
+                    fontSize: 16, fontWeight: FontWeight.w700)),
       ),
     );
   }
@@ -350,6 +339,84 @@ class _ItemRow extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AddressCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddressCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = context.watch<AddressProvider>().selected;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected != null ? AppColors.primary : AppColors.border,
+            width: selected != null ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Icon(Icons.location_on_outlined,
+                  color: AppColors.primary, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: selected == null
+                  ? Text(
+                      'Add delivery address',
+                      style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          selected.label,
+                          style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary),
+                        ),
+                        Text(
+                          selected.fullAddress,
+                          style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: AppColors.textPrimary),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              selected == null ? 'Add' : 'Change',
+              style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -5,6 +5,7 @@ import '../../core/models/catalog_item.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../catalog/item_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -148,8 +149,6 @@ class _SearchScreenState extends State<SearchScreen> {
           ],
         ),
       ),
-      // Floating cart bar only — bottom nav is in MainShell
-      bottomNavigationBar: cart.isEmpty ? null : _CartBar(cart: cart),
     );
   }
 
@@ -157,9 +156,16 @@ class _SearchScreenState extends State<SearchScreen> {
     final qty = cart.quantityOf(item.id);
     final available = item.isAvailable;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ItemDetailScreen(item: item)),
+        ),
+        child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
         children: [
           // Image
           ClipRRect(
@@ -260,6 +266,8 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
         ],
+        ),
+      ),
       ),
     );
   }
@@ -310,62 +318,6 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _CartBar extends StatelessWidget {
-  final CartProvider cart;
-  const _CartBar({required this.cart});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => Navigator.pushNamed(context, '/cart'),
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppColors.textPrimary,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.shopping_cart_outlined,
-                  color: Colors.white, size: 18),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${cart.itemCount} ITEMS',
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5)),
-                Text('₹${cart.subtotal.toStringAsFixed(0)}',
-                    style: GoogleFonts.inter(
-                        fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800)),
-              ],
-            ),
-            const Spacer(),
-            Text('View Cart >',
-                style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600)),
-          ],
-        ),
       ),
     );
   }

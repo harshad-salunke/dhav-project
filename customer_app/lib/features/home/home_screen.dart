@@ -1,18 +1,24 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../core/models/catalog_item.dart';
+import '../../core/utils/lottie_utils.dart';
+import '../../core/providers/address_provider.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/main_shell.dart';
+import '../address/address_selection_sheet.dart';
 import '../catalog/item_detail_screen.dart';
+import 'hero_banner.dart';
 import 'store_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -22,10 +28,21 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with TickerProviderStateMixin {
   String _areaName = 'Detecting location…';
   bool _locating = true;
   int _mode = 0;
+  late final PageController _pageCtrl = PageController();
+
+  // Gradient shimmer
+  late final AnimationController _shimmerCtrl;
+  late final Animation<double> _shimmerAnim;
+
+  // Search bar scooter
+  late final AnimationController _scooterCtrl;
+  late final Animation<double> _scooterAnim;
+  late final Animation<double> _scooterFade;
 
   static const _categories = [
     ('🌾', 'Grains'),
@@ -42,8 +59,51 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _detectLocation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<OrderProvider>().loadHistory();
+      if (mounted) {
+        context.read<OrderProvider>().loadHistory();
+        context.read<AddressProvider>().loadAddresses();
+      }
     });
+
+    _shimmerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    )..repeat();
+    _shimmerAnim = Tween<double>(begin: 0.0, end: 1.0).animate(_shimmerCtrl);
+
+    _scooterCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3600),
+    )..repeat();
+    _scooterAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _scooterCtrl,
+        curve: const Interval(0.0, 0.82, curve: Curves.easeInOut),
+      ),
+    );
+    _scooterFade = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _scooterCtrl,
+        curve: const Interval(0.78, 1.0, curve: Curves.easeOut),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    _shimmerCtrl.dispose();
+    _scooterCtrl.dispose();
+    super.dispose();
+  }
+
+  void _switchTab(int index) {
+    setState(() => _mode = index);
+    _pageCtrl.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+    );
   }
 
   Future<void> _detectLocation() async {
@@ -146,138 +206,214 @@ class _HomeScreenState extends State<HomeScreen> {
     final allItems = catalog.items;
     final featured = allItems.take(12).toList();
 
-    return Scaffold(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
-            _buildHeader(auth),
-            _buildModeTabs(catalog),
+            _buildGradientHeader(auth, catalog),
             Expanded(
-              child: _mode == 1
-                  ? _NearbyStoresList(
-                      catalog: catalog,
-                      onStoreTap: (store) => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              StoreDetailScreen(storeSnippet: store),
-                        ),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      color: AppColors.primary,
-                      onRefresh: _detectLocation,
-                      child: CustomScrollView(
-                        slivers: [
-                          SliverToBoxAdapter(child: _buildSearchBar()),
-                          if (orders.hasActiveOrder)
-                            SliverToBoxAdapter(
-                                child: _buildTrackBanner(orders)),
+              child: PageView(
+                controller: _pageCtrl,
+                onPageChanged: (i) => setState(() => _mode = i),
+                physics: const ClampingScrollPhysics(),
+                children: [
+                  // ── DHAV tab ──────────────────────────────────────────
+                  RefreshIndicator(
+                    color: AppColors.primary,
+                    onRefresh: _detectLocation,
+                    child: CustomScrollView(
+                      slivers: [
+                        const SliverToBoxAdapter(child: HeroBanner()),
+                        if (orders.hasActiveOrder)
                           SliverToBoxAdapter(
-                              child: _buildCategoryChips(allItems)),
-                          // Order Again — only when real past orders exist
-                          if (orders.loading) ...[
-                            SliverToBoxAdapter(
-                                child: _buildSectionHeader('Order Again',
-                                    onSeeAll: () =>
-                                        MainShell.of(context)?.switchTab(2))),
-                            SliverToBoxAdapter(
-                                child: _buildOrderAgainShimmer()),
-                          ] else if (orders.orders.isNotEmpty) ...[
-                            SliverToBoxAdapter(
-                                child: _buildSectionHeader('Order Again',
-                                    onSeeAll: () =>
-                                        MainShell.of(context)?.switchTab(2))),
-                            SliverToBoxAdapter(
-                                child: _buildOrderAgainRow(orders)),
-                          ],
+                              child: _buildTrackBanner(orders)),
+                        SliverToBoxAdapter(
+                            child: _buildCategoryChips(allItems)),
+                        if (orders.loading) ...[
                           SliverToBoxAdapter(
-                              child: _buildSectionHeader('Fresh For You')),
-                          if (catalog.loading)
-                            _buildShimmerGrid()
-                          else if (featured.isEmpty)
+                              child: _buildSectionHeader('Order Again',
+                                  onSeeAll: () =>
+                                      MainShell.of(context)?.switchTab(2))),
+                          SliverToBoxAdapter(
+                              child: _buildOrderAgainShimmer()),
+                        ] else if (orders.orders.isNotEmpty) ...[
+                          SliverToBoxAdapter(
+                              child: _buildSectionHeader('Order Again',
+                                  onSeeAll: () =>
+                                      MainShell.of(context)?.switchTab(2))),
+                          SliverToBoxAdapter(
+                              child: _buildOrderAgainRow(orders)),
+                        ],
+                        SliverToBoxAdapter(
+                            child: _buildSectionHeader('Fresh For You')),
+                        if (catalog.loading)
+                          _buildShimmerGrid()
+                        else if (featured.isEmpty)
+                          SliverToBoxAdapter(child: _buildNoStoresCard())
+                        else ...[
+                          if (catalog.hasLocation && catalog.storesFound == 0)
                             SliverToBoxAdapter(
-                                child: _buildNoStoresCard())
-                          else ...[
-                            if (catalog.hasLocation && catalog.storesFound == 0)
-                              SliverToBoxAdapter(
-                                  child: _buildNoNearbyBanner()),
-                            SliverPadding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                              sliver: SliverGrid(
-                                delegate: SliverChildBuilderDelegate(
-                                  (context, index) =>
-                                      TweenAnimationBuilder<double>(
-                                    key: ValueKey(featured[index].id),
-                                    tween: Tween(begin: 0.0, end: 1.0),
-                                    duration: Duration(
-                                        milliseconds:
-                                            180 + (index % 6) * 55),
-                                    curve: Curves.easeOutCubic,
-                                    builder: (context, v, child) => Opacity(
-                                      opacity: v,
-                                      child: Transform.translate(
-                                        offset: Offset(0, 18 * (1 - v)),
-                                        child: child,
-                                      ),
+                                child: _buildNoNearbyBanner()),
+                          SliverPadding(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            sliver: SliverGrid(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) =>
+                                    TweenAnimationBuilder<double>(
+                                  key: ValueKey(featured[index].id),
+                                  tween: Tween(begin: 0.0, end: 1.0),
+                                  duration: Duration(
+                                      milliseconds:
+                                          180 + (index % 6) * 55),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, v, child) => Opacity(
+                                    opacity: v,
+                                    child: Transform.translate(
+                                      offset: Offset(0, 18 * (1 - v)),
+                                      child: child,
                                     ),
-                                    child: _ItemCard(item: featured[index]),
                                   ),
-                                  childCount: featured.length,
+                                  child: _ItemCard(item: featured[index]),
                                 ),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  childAspectRatio: 0.72,
-                                ),
+                                childCount: featured.length,
+                              ),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: 0.72,
                               ),
                             ),
-                          ],
-                          SliverToBoxAdapter(
-                              child:
-                                  _buildSectionHeader('Trending Near You')),
-                          SliverToBoxAdapter(
-                              child: _buildTrendingRow(allItems)),
-                          const SliverToBoxAdapter(
-                              child: SizedBox(height: 20)),
+                          ),
                         ],
+                        SliverToBoxAdapter(
+                            child: _buildSectionHeader('Trending Near You')),
+                        SliverToBoxAdapter(
+                            child: _buildTrendingRow(allItems)),
+                        const SliverToBoxAdapter(
+                            child: SizedBox(height: 20)),
+                      ],
+                    ),
+                  ),
+                  // ── Stores tab ────────────────────────────────────────
+                  _NearbyStoresList(
+                    catalog: catalog,
+                    onStoreTap: (store) => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            StoreDetailScreen(storeSnippet: store),
                       ),
                     ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
+    ),
+    );
+  }
+
+  Widget _buildGradientHeader(AuthProvider auth, CatalogProvider catalog) {
+    return Stack(
+      clipBehavior: Clip.hardEdge,
+      children: [
+        // Gradient base
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                AppColors.primaryDark,
+                AppColors.primary,
+                AppColors.background,
+              ],
+              stops: [0.0, 0.42, 1.0],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(auth),
+              _buildModeTabs(catalog),
+              _buildSearchBar(),
+            ],
+          ),
+        ),
+        // Animated shimmer sweep
+        IgnorePointer(
+          child: AnimatedBuilder(
+            animation: _shimmerAnim,
+            builder: (context, _) => LayoutBuilder(
+              builder: (context, constraints) {
+                final w = constraints.maxWidth;
+                return Transform.translate(
+                  offset: Offset(
+                      (_shimmerAnim.value * 2.5 - 0.75) * w, 0),
+                  child: Container(
+                    width: w * 0.45,
+                    height: 240,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Color(0x00FFFFFF),
+                          Color(0x0DFFFFFF),
+                          Color(0x00FFFFFF),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildHeader(AuthProvider auth) {
+    final statusBarH = MediaQuery.of(context).padding.top;
+    final selectedAddr = context.watch<AddressProvider>().selected;
+    final displayText = selectedAddr != null
+        ? selectedAddr.displayTitle
+        : (_locating ? 'Detecting location…' : _areaName);
+
     return Container(
-      color: AppColors.background,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      color: Colors.transparent,
+      padding: EdgeInsets.fromLTRB(16, statusBarH + 10, 16, 8),
       child: Row(
         children: [
           const Icon(Icons.location_on_rounded,
-              color: AppColors.primary, size: 20),
+              color: Colors.white, size: 20),
           const SizedBox(width: 6),
           Expanded(
             child: GestureDetector(
-              onTap: () {/* TODO: address picker */},
+              onTap: () => AddressSelectionSheet.show(context),
               child: Row(
                 children: [
-                  Text(
-                    _locating ? 'Detecting location…' : _areaName,
-                    style: GoogleFonts.inter(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary),
+                  Flexible(
+                    child: Text(
+                      displayText,
+                      style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   const Icon(Icons.keyboard_arrow_down_rounded,
-                      color: AppColors.textSecondary, size: 18),
+                      color: Colors.white70, size: 18),
                 ],
               ),
             ),
@@ -288,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Stack(
               children: [
                 const Icon(Icons.notifications_outlined,
-                    color: AppColors.textPrimary, size: 26),
+                    color: Colors.white, size: 26),
                 Positioned(
                   right: 0,
                   top: 0,
@@ -307,7 +443,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => MainShell.of(context)?.switchTab(3),
             child: CircleAvatar(
               radius: 18,
-              backgroundColor: AppColors.primaryLight,
+              backgroundColor: Colors.white.withValues(alpha: 0.2),
               child: Text(
                 (auth.user?.name.isNotEmpty == true
                         ? auth.user!.name[0]
@@ -315,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     .toUpperCase(),
                 style: GoogleFonts.inter(
                     fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
+                    color: Colors.white,
                     fontSize: 15),
               ),
             ),
@@ -328,20 +464,93 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildModeTabs(CatalogProvider catalog) {
     final storeCount = catalog.allNearbyStores.length;
     return Container(
-      color: AppColors.surface,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: Row(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: Colors.white.withValues(alpha: 0.25), width: 1.5),
+      ),
+      child: Stack(
         children: [
-          _ModeTab(
-            label: '⚡  DHAV',
-            selected: _mode == 0,
-            onTap: () => setState(() => _mode = 0),
+          // Animated white sliding pill
+          AnimatedAlign(
+            alignment: _mode == 0
+                ? Alignment.centerLeft
+                : Alignment.centerRight,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: FractionallySizedBox(
+              widthFactor: 0.5,
+              child: Container(
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-          const SizedBox(width: 10),
-          _ModeTab(
-            label: '🏪  Stores${storeCount > 0 ? '  $storeCount' : ''}',
-            selected: _mode == 1,
-            onTap: () => setState(() => _mode = 1),
+          // Tab labels
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _switchTab(0),
+                  behavior: HitTestBehavior.opaque,
+                  child: SizedBox(
+                    height: 46,
+                    child: Center(
+                      child: AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 220),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: _mode == 0
+                              ? AppColors.primary
+                              : Colors.white.withValues(alpha: 0.85),
+                        ),
+                        child: const Text('⚡  DHAV'),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _switchTab(1),
+                  behavior: HitTestBehavior.opaque,
+                  child: SizedBox(
+                    height: 46,
+                    child: Center(
+                      child: AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 220),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: _mode == 1
+                              ? AppColors.primary
+                              : Colors.white.withValues(alpha: 0.85),
+                        ),
+                        child: Text(
+                          storeCount > 0
+                              ? '🏪  Stores  $storeCount'
+                              : '🏪  Stores',
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -351,32 +560,69 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSearchBar() {
     return GestureDetector(
       onTap: () => MainShell.of(context)?.switchTab(1),
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-          boxShadow: const [
-            BoxShadow(
-                color: AppColors.shadow, blurRadius: 4, offset: Offset(0, 1))
-          ],
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.search_rounded,
-                color: AppColors.textHint, size: 20),
-            const SizedBox(width: 10),
-            Text(
-              'Search dal, rice, oil…',
-              style:
-                  GoogleFonts.inter(color: AppColors.textHint, fontSize: 14),
+      child: AnimatedBuilder(
+        animation: _scooterCtrl,
+        builder: (context, child) {
+          final x = _scooterAnim.value;
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              child!,
+              // Lottie delivery bike riding along the top border
+              Positioned(
+                top: -2,
+                left: 20,
+                right: 20,
+                height: 40,
+                child: IgnorePointer(
+                  child: Opacity(
+                    opacity: _scooterFade.value,
+                    child: Align(
+                      alignment: Alignment(x * 2 - 1, 0),
+                      child: SizedBox(
+                        width: 70,
+                        height: 40,
+                        child: Lottie.asset(
+                          'assets/images/delivery_riding.lottie',
+                          decoder: decodeDotLottie,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+        child: Container(
+          height: 52,
+          margin: const EdgeInsets.fromLTRB(16, 38, 16, 16),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                const Icon(Icons.search_rounded,
+                    color: Colors.white70, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Search dal, rice, oil…',
+                    style: GoogleFonts.inter(
+                        color: Colors.white60, fontSize: 14),
+                  ),
+                ),
+                const Icon(Icons.mic_outlined,
+                    color: Colors.white70, size: 20),
+              ],
             ),
-            const Spacer(),
-            const Icon(Icons.mic_outlined,
-                color: AppColors.textHint, size: 20),
-          ],
+          ),
         ),
       ),
     );
@@ -846,7 +1092,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // ─── Category Browse Full-Screen ─────────────────────────────────────────────
 
-class _CategoryBrowseScreen extends StatelessWidget {
+class _CategoryBrowseScreen extends StatefulWidget {
   final String emoji;
   final String category;
   final List<CatalogItem> items;
@@ -858,9 +1104,41 @@ class _CategoryBrowseScreen extends StatelessWidget {
   });
 
   @override
+  State<_CategoryBrowseScreen> createState() => _CategoryBrowseScreenState();
+}
+
+class _CategoryBrowseScreenState extends State<_CategoryBrowseScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<CatalogItem> get _filtered {
+    if (_query.isEmpty) return widget.items;
+    final q = _query.toLowerCase();
+    return widget.items.where((i) =>
+        i.name.toLowerCase().contains(q) ||
+        (i.nameHindi?.toLowerCase().contains(q) ?? false) ||
+        (i.nameMarathi?.toLowerCase().contains(q) ?? false)).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final filtered = _filtered;
+    final cart = context.watch<CartProvider>();
+
     return Scaffold(
       backgroundColor: AppColors.background,
+      bottomNavigationBar: cart.itemCount > 0
+          ? _CategoryCartBar(
+              cart: cart,
+              onViewCart: () => Navigator.pushNamed(context, '/cart'),
+            )
+          : null,
       body: Column(
         children: [
           // Gradient header
@@ -877,6 +1155,7 @@ class _CategoryBrowseScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Back row + count badge
                   Padding(
                     padding: const EdgeInsets.fromLTRB(4, 6, 16, 0),
                     child: Row(
@@ -889,61 +1168,124 @@ class _CategoryBrowseScreen extends StatelessWidget {
                               size: 20),
                         ),
                         const Spacer(),
-                        if (items.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '${items.length} items',
-                              style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600),
-                            ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(20),
                           ),
+                          child: Text(
+                            _query.isEmpty
+                                ? '${widget.items.length} items'
+                                : '${filtered.length} of ${widget.items.length}',
+                            style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ),
                       ],
                     ),
                   ),
+                  // Emoji + category name
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
                     child: Row(
                       children: [
                         Container(
-                          width: 64,
-                          height: 64,
+                          width: 56,
+                          height: 56,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(18),
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                           child: Center(
-                            child: Text(emoji,
-                                style: const TextStyle(fontSize: 32)),
+                            child: Text(widget.emoji,
+                                style: const TextStyle(fontSize: 28)),
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 14),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(category,
+                            Text(widget.category,
                                 style: GoogleFonts.inter(
                                     color: Colors.white,
-                                    fontSize: 26,
+                                    fontSize: 24,
                                     fontWeight: FontWeight.w800,
                                     height: 1.1)),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 3),
                             Text(
-                              'Browse all ${category.toLowerCase()} products',
+                              'Browse all ${widget.category.toLowerCase()} products',
                               style: GoogleFonts.inter(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 13),
+                                  color: Colors.white.withValues(alpha: 0.75),
+                                  fontSize: 12),
                             ),
                           ],
                         ),
                       ],
+                    ),
+                  ),
+                  // Search bar inside the header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Container(
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 12),
+                          const Icon(Icons.search_rounded,
+                              color: AppColors.textHint, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _searchCtrl,
+                              onChanged: (v) =>
+                                  setState(() => _query = v.trim()),
+                              style: GoogleFonts.inter(
+                                  color: AppColors.textPrimary, fontSize: 14),
+                              cursorColor: AppColors.primary,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              decoration: InputDecoration(
+                                hintText:
+                                    'Search in ${widget.category.toLowerCase()}…',
+                                hintStyle: GoogleFonts.inter(
+                                    color: AppColors.textHint, fontSize: 14),
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ),
+                          if (_query.isNotEmpty)
+                            GestureDetector(
+                              onTap: () {
+                                _searchCtrl.clear();
+                                setState(() => _query = '');
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 10),
+                                child: Icon(Icons.close_rounded,
+                                    color: AppColors.textHint, size: 18),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -952,26 +1294,54 @@ class _CategoryBrowseScreen extends StatelessWidget {
           ),
           // Items grid
           Expanded(
-            child: items.isEmpty
+            child: filtered.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(emoji,
+                        Text(_query.isEmpty ? widget.emoji : '🔍',
                             style: const TextStyle(fontSize: 52)),
                         const SizedBox(height: 14),
                         Text(
-                          'No $category items yet',
+                          _query.isEmpty
+                              ? 'No ${widget.category} items yet'
+                              : 'No results for "$_query"',
                           style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: AppColors.textPrimary),
                         ),
                         const SizedBox(height: 6),
-                        Text('Check back soon!',
-                            style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: AppColors.textSecondary)),
+                        Text(
+                          _query.isEmpty
+                              ? 'Check back soon!'
+                              : 'Try a different search term',
+                          style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: AppColors.textSecondary),
+                        ),
+                        if (_query.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          GestureDetector(
+                            onTap: () {
+                              _searchCtrl.clear();
+                              setState(() => _query = '');
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 9),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryLight,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text('Clear search',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.primary)),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   )
@@ -984,9 +1354,9 @@ class _CategoryBrowseScreen extends StatelessWidget {
                       crossAxisSpacing: 12,
                       childAspectRatio: 0.72,
                     ),
-                    itemCount: items.length,
+                    itemCount: filtered.length,
                     itemBuilder: (_, i) => TweenAnimationBuilder<double>(
-                      key: ValueKey(items[i].id),
+                      key: ValueKey(filtered[i].id),
                       tween: Tween(begin: 0.0, end: 1.0),
                       duration:
                           Duration(milliseconds: 160 + (i % 6) * 40),
@@ -997,9 +1367,110 @@ class _CategoryBrowseScreen extends StatelessWidget {
                             offset: Offset(0, 16 * (1 - v)),
                             child: child),
                       ),
-                      child: _ItemCard(item: items[i]),
+                      child: _ItemCard(item: filtered[i]),
                     ),
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Category Cart Bar ────────────────────────────────────────────────────────
+
+class _CategoryCartBar extends StatelessWidget {
+  final CartProvider cart;
+  final VoidCallback onViewCart;
+
+  const _CategoryCartBar({required this.cart, required this.onViewCart});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 16,
+              offset: const Offset(0, -4))
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Center(
+              child: Text(
+                '${cart.itemCount}',
+                style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${cart.itemCount} item${cart.itemCount != 1 ? 's' : ''} in cart',
+                  style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary),
+                ),
+                Text(
+                  '₹${cart.subtotal.toStringAsFixed(0)} total',
+                  style: GoogleFonts.inter(
+                      fontSize: 12, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: onViewCart,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.primary, AppColors.primaryDark],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('View Cart',
+                      style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white)),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.arrow_forward_ios_rounded,
+                      color: Colors.white, size: 13),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -1286,60 +1757,9 @@ class _ItemCardState extends State<_ItemCard>
       );
 }
 
-// ── DHAV / Stores mode tab pill ───────────────────────────────────────────────
-
-class _ModeTab extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ModeTab({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.background,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: selected ? AppColors.primary : AppColors.border,
-            width: 1.5,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.25),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  )
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : AppColors.textPrimary,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ── Nearby stores list (mode 1) ───────────────────────────────────────────────
 
-class _NearbyStoresList extends StatelessWidget {
+class _NearbyStoresList extends StatefulWidget {
   final CatalogProvider catalog;
   final ValueChanged<Map<String, dynamic>> onStoreTap;
 
@@ -1349,8 +1769,22 @@ class _NearbyStoresList extends StatelessWidget {
   });
 
   @override
+  State<_NearbyStoresList> createState() => _NearbyStoresListState();
+}
+
+class _NearbyStoresListState extends State<_NearbyStoresList> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (!catalog.hasLocation) {
+    if (!widget.catalog.hasLocation) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -1376,40 +1810,106 @@ class _NearbyStoresList extends StatelessWidget {
       );
     }
 
-    final stores = catalog.allNearbyStores;
-    if (stores.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.store_mall_directory_outlined,
-                  size: 48, color: AppColors.textHint),
-              const SizedBox(height: 12),
-              Text('No stores found nearby',
-                  style: GoogleFonts.inter(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary)),
-              const SizedBox(height: 4),
-              Text('DHAV is expanding — check back soon!',
-                  style: GoogleFonts.inter(
-                      fontSize: 13, color: AppColors.textSecondary)),
-            ],
+    final stores = widget.catalog.allNearbyStores;
+    final filtered = _query.isEmpty
+        ? stores
+        : stores.where((s) {
+            final name = (s['name'] as String? ?? '').toLowerCase();
+            final area = (s['area'] as String? ?? '').toLowerCase();
+            return name.contains(_query.toLowerCase()) ||
+                area.contains(_query.toLowerCase());
+          }).toList();
+
+    return Column(
+      children: [
+        // Search bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+              boxShadow: const [
+                BoxShadow(
+                    color: AppColors.shadow,
+                    blurRadius: 4,
+                    offset: Offset(0, 1)),
+              ],
+            ),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (v) => setState(() => _query = v.trim()),
+              decoration: InputDecoration(
+                hintText: 'Search stores by name or area…',
+                hintStyle: GoogleFonts.inter(
+                    color: AppColors.textHint, fontSize: 14),
+                prefixIcon: const Icon(Icons.search_rounded,
+                    color: AppColors.textHint),
+                suffixIcon: _query.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded,
+                            color: AppColors.textHint, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _query = '');
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 0, vertical: 14),
+              ),
+            ),
           ),
         ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      itemCount: stores.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => _StoreCard(
-        store: stores[i],
-        onTap: () => onStoreTap(stores[i]),
-      ),
+        // List
+        Expanded(
+          child: stores.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.store_mall_directory_outlined,
+                            size: 48, color: AppColors.textHint),
+                        const SizedBox(height: 12),
+                        Text('No stores found nearby',
+                            style: GoogleFonts.inter(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary)),
+                        const SizedBox(height: 4),
+                        Text('DHAV is expanding — check back soon!',
+                            style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
+                )
+              : filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No stores match "$_query"',
+                        style: GoogleFonts.inter(
+                            fontSize: 14,
+                            color: AppColors.textSecondary),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: 10),
+                      itemBuilder: (_, i) => _StoreCard(
+                        store: filtered[i],
+                        onTap: () => widget.onStoreTap(filtered[i]),
+                      ),
+                    ),
+        ),
+      ],
     );
   }
 }

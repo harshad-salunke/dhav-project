@@ -1,6 +1,6 @@
 {
   "database": {
-    "rules": "realtime-db.rules"
+    "rules": "realtime-db.json"
   },
   "storage": {
     "rules": "storage.rules"

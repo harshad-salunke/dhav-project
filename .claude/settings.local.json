@@ -5,7 +5,10 @@
       "Bash(flutter pub *)",
       "mcp__claude_ai_Figma__get_metadata",
       "Bash(flutter analyze *)",
-      "Bash(.venv\\\\Scripts\\\\python -c \"from services.geofencing import find_nearby_stores, find_all_stores_in_radius; from routers.catalog import router; print\\('OK'\\)\")"
+      "Bash(.venv\\\\Scripts\\\\python -c \"from services.geofencing import find_nearby_stores, find_all_stores_in_radius; from routers.catalog import router; print\\('OK'\\)\")",
+      "PowerShell(Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"c:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\customer_app\\\\assets\\\\images\\\\delivery_riding.lottie\"\\); $zip.Entries | ForEach-Object { Write-Output $_.FullName }; $zip.Dispose\\(\\))",
+      "PowerShell(Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"c:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\customer_app\\\\assets\\\\images\\\\delivery_riding.lottie\"\\); $entry = $zip.GetEntry\\(\"animations/5a2cd526-a9bb-4093-b022-0de1ee581c7c.json\"\\); $reader = New-Object System.IO.StreamReader\\($entry.Open\\(\\)\\); $content = $reader.ReadToEnd\\(\\); $reader.Dispose\\(\\); $zip.Dispose\\(\\); $json = $content | ConvertFrom-Json; Write-Output \"ip \\(in-point/startFrame\\): $\\($json.ip\\)\"; Write-Output \"op \\(out-point/endFrame\\): $\\($json.op\\)\"; Write-Output \"fr \\(framerate\\): $\\($json.fr\\)\"; Write-Output \"w: $\\($json.w\\)\"; Write-Output \"h: $\\($json.h\\)\")",
+      "PowerShell(Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"c:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\customer_app\\\\assets\\\\images\\\\delivery_riding.lottie\"\\); $entry = $zip.GetEntry\\(\"manifest.json\"\\); $reader = New-Object System.IO.StreamReader\\($entry.Open\\(\\)\\); $content = $reader.ReadToEnd\\(\\); $reader.Dispose\\(\\); $zip.Dispose\\(\\); Write-Output $content)"
     ]
   }
 }

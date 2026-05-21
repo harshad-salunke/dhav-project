@@ -27,7 +27,7 @@ class DeliveryLocationStreamer {
   Future<void> start(String orderId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw StateError('Not signed in');
-    final token = await user.getIdToken();
+    final token = await user.getIdToken(true);
 
     if (!await _ensurePermission()) {
       throw StateError('Location permission denied');
