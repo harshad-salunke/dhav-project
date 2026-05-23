@@ -15,6 +15,7 @@ import 'core/services/fcm_service.dart';
 import 'core/theme/app_theme.dart';
 
 import 'features/auth/login_screen.dart';
+import 'features/auth/permission_gate_screen.dart';
 import 'features/auth/splash_screen.dart';
 import 'features/auth/store_registration_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
@@ -82,6 +83,29 @@ Future<void> main() async {
     );
   };
 
+  // Native side (DhavMessagingService.kt) force-launches MainActivity when
+  // an order arrives while the screen is on. It caches the order_id and
+  // signals us here so we can pull-and-navigate as soon as Dart's navigator
+  // is ready. We also pull on lifecycle resume below for the
+  // backgrounded-but-still-running case.
+  Future<void> consumeAndNavigateNative() async {
+    final pending = await fcmService.consumePendingNativeOrder();
+    if (pending == null) return;
+    final orderId = pending['order_id'];
+    if (orderId == null) return;
+    final type = pending['type'];
+    if (type == 'delivery_assigned') {
+      navigatorKey.currentState?.pushNamed(
+        AppRoutes.deliveryIncomingAssignment,
+        arguments: orderId,
+      );
+    } else {
+      navigateToIncomingOrder(orderId);
+    }
+  }
+
+  fcmService.onNativePendingOrderAvailable(consumeAndNavigateNative);
+
   runApp(
     MultiProvider(
       providers: [
@@ -98,8 +122,55 @@ Future<void> main() async {
   );
 }
 
-class DhavStoreApp extends StatelessWidget {
+class DhavStoreApp extends StatefulWidget {
   const DhavStoreApp({super.key});
+
+  @override
+  State<DhavStoreApp> createState() => _DhavStoreAppState();
+}
+
+class _DhavStoreAppState extends State<DhavStoreApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App was brought to the foreground — most likely by the native
+      // force-launch from DhavMessagingService. Pull any pending order
+      // and navigate to the popup.
+      _drainPendingNativeOrder();
+    }
+  }
+
+  Future<void> _drainPendingNativeOrder() async {
+    final pending = await fcmService.consumePendingNativeOrder();
+    if (pending == null) return;
+    final orderId = pending['order_id'];
+    if (orderId == null) return;
+    final type = pending['type'];
+    if (type == 'delivery_assigned') {
+      navigatorKey.currentState?.pushNamed(
+        AppRoutes.deliveryIncomingAssignment,
+        arguments: orderId,
+      );
+    } else {
+      navigatorKey.currentState?.pushNamed(
+        AppRoutes.incomingOrder,
+        arguments: orderId,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +197,10 @@ class DhavStoreApp extends StatelessWidget {
         switch (settings.name) {
           case AppRoutes.splash:
             return _pageRoute(const SplashScreen());
+          case AppRoutes.permissionGate:
+            final nextRoute =
+                (settings.arguments as String?) ?? AppRoutes.dashboard;
+            return _pageRoute(PermissionGateScreen(nextRoute: nextRoute));
           case AppRoutes.login:
             return _pageRoute(const LoginScreen());
           case AppRoutes.registerStore:

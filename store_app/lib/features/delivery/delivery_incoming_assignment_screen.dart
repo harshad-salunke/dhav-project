@@ -8,6 +8,7 @@ import '../../core/constants/app_routes.dart';
 import '../../core/models/order.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../main.dart' show fcmService;
 
 class DeliveryIncomingAssignmentScreen extends StatefulWidget {
   final String? orderId;
@@ -35,6 +36,7 @@ class _DeliveryIncomingAssignmentScreenState
   void initState() {
     super.initState();
     HapticFeedback.heavyImpact();
+    fcmService.startRingtone();
 
     _pulseController = AnimationController(
       vsync: this,
@@ -78,6 +80,7 @@ class _DeliveryIncomingAssignmentScreenState
   void dispose() {
     _timer?.cancel();
     _pulseController.dispose();
+    fcmService.stopRingtone();
     super.dispose();
   }
 

@@ -44,4 +44,10 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.2.2")
+    // Needed so our custom DhavMessagingService.kt can extend
+    // FirebaseMessagingService directly. The version is pinned by the BoM
+    // so it stays aligned with whatever firebase_messaging (Flutter plugin)
+    // is using transitively.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 }

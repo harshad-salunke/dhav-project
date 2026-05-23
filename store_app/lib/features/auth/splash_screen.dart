@@ -41,16 +41,64 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 1200));
     if (!mounted) return;
 
+    // COLD-START FROM NOTIFICATION OR NATIVE FORCE-LAUNCH: if the app was
+    // launched by either a tapped notification OR a force-launch from
+    // DhavMessagingService (Uber-style popup-over-other-apps), jump straight
+    // to the incoming-order popup instead of the dashboard.
+    var coldOrderId = await fcmService.getInitialNotificationOrderId();
+    String? coldType;
+    if (coldOrderId == null) {
+      final pending = await fcmService.consumePendingNativeOrder();
+      coldOrderId = pending?['order_id'];
+      coldType = pending?['type'];
+    }
+    if (coldOrderId != null && mounted) {
+      if (auth.status == AuthStatus.signedIn) {
+        final user = auth.user!;
+        // Choose route by the FCM message `type` when we have it (from the
+        // native force-launch); otherwise fall back to user role.
+        final isDelivery = coldType == 'delivery_assigned' ||
+            (coldType == null && user.isDeliveryBoy);
+        if (isDelivery && user.isDeliveryBoy) {
+          fcmService.syncDeliveryTokenToBackend();
+          fcmService.listenForDeliveryTokenRefresh();
+          Navigator.pushReplacementNamed(
+            context,
+            AppRoutes.deliveryIncomingAssignment,
+            arguments: coldOrderId,
+          );
+          return;
+        } else if (user.isStoreOwner) {
+          fcmService.syncTokenToBackend();
+          fcmService.listenForTokenRefresh();
+          Navigator.pushReplacementNamed(
+            context,
+            AppRoutes.incomingOrder,
+            arguments: coldOrderId,
+          );
+          return;
+        }
+      }
+    }
+
     if (auth.status == AuthStatus.signedIn) {
       final user = auth.user!;
       if (user.isStoreOwner) {
         fcmService.syncTokenToBackend();
         fcmService.listenForTokenRefresh();
-        Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.permissionGate,
+          arguments: AppRoutes.dashboard,
+        );
       } else if (user.isDeliveryBoy) {
         fcmService.syncDeliveryTokenToBackend();
         fcmService.listenForDeliveryTokenRefresh();
-        Navigator.pushReplacementNamed(context, AppRoutes.deliveryHome);
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.permissionGate,
+          arguments: AppRoutes.deliveryHome,
+        );
       } else {
         // Default role (customer / first-time user) — let them self-onboard a store.
         Navigator.pushReplacementNamed(context, AppRoutes.registerStore);

@@ -19,6 +19,10 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Full-screen intent for incoming order overlay (Android 14+) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- Battery optimization opt-out so FCM is delivered when app is killed -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- Display the incoming-order popup over other apps (Uber-style) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
 
     <application
         android:label="DHAV Store"
@@ -45,6 +49,19 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- Custom FCM service: forces MainActivity to foreground on new
+             orders so the IncomingOrderScreen pops up over any app the user
+             is currently in (Uber-style). Falls back to the regular
+             full-screen-intent notification if SYSTEM_ALERT_WINDOW is not
+             granted. Overrides the plugin's default service. -->
+        <service
+            android:name=".DhavMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
 
         <!-- High-priority FCM notification channel for incoming orders -->
         <meta-data

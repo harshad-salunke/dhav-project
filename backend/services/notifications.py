@@ -1,8 +1,19 @@
+from datetime import timedelta
+
 from firebase_admin import messaging
+
+# FCM holds messages on its servers and delivers them when the device comes
+# back online. For incoming-order alerts that is harmful — a store owner who
+# was offline for hours should NOT get a popup for an order that was already
+# accepted by someone else 30 minutes ago. We cap the TTL at the maximum
+# broadcast window (≈3 minutes across 3 waves). After this, FCM drops the
+# message instead of holding it.
+_ORDER_NOTIF_TTL = timedelta(seconds=180)
 
 
 def _send(token: str, title: str, body: str, data: dict, high_priority: bool = False) -> None:
     if not token:
+        print(f"[FCM] _send SKIPPED: no token (title='{title}')")
         return
     msg = messaging.Message(
         notification=messaging.Notification(title=title, body=body),
@@ -11,40 +22,54 @@ def _send(token: str, title: str, body: str, data: dict, high_priority: bool = F
         android=messaging.AndroidConfig(
             priority="high" if high_priority else "normal",
             notification=messaging.AndroidNotification(
-                sound="default",
+                sound="order_alert",
                 channel_id="dhav_incoming_orders" if high_priority else "dhav_general",
                 default_vibrate_timings=high_priority,
             ),
         ),
     )
     try:
-        messaging.send(msg)
-    except Exception:
-        pass
+        resp = messaging.send(msg)
+        print(f"[FCM] _send OK  title='{title}'  resp={resp}")
+    except Exception as e:
+        print(f"[FCM] _send FAILED  title='{title}'  error={type(e).__name__}: {e}")
 
 
 def _send_multicast(tokens: list[str], title: str, body: str, data: dict,
                      high_priority: bool = False) -> None:
     valid_tokens = [t for t in tokens if t]
+    print(f"[FCM] _send_multicast: title='{title}'  total_tokens={len(tokens)}  valid_tokens={len(valid_tokens)}")
     if not valid_tokens:
+        print(f"[FCM] _send_multicast SKIPPED: no valid tokens")
         return
+    # DATA-ONLY message — no `notification` field. This prevents the FCM SDK
+    # from auto-displaying a second notification on top of the one we show
+    # ourselves from _backgroundHandler. Title/body are stashed in `data` so
+    # the Flutter side can render the full-screen-intent popup.
+    payload = {k: str(v) for k, v in data.items()}
+    payload["title"] = title
+    payload["body"] = body
+    # Per-order collapse key — if FCM ends up holding multiple notifications
+    # for the same order (e.g. wave 1 + wave 2 retry while phone offline),
+    # only the latest one is delivered. Falls back to title bucket otherwise.
+    collapse_key = f"order_{data.get('order_id')}" if data.get("order_id") else title
     msg = messaging.MulticastMessage(
-        notification=messaging.Notification(title=title, body=body),
-        data={k: str(v) for k, v in data.items()},
+        data=payload,
         tokens=valid_tokens,
         android=messaging.AndroidConfig(
             priority="high" if high_priority else "normal",
-            notification=messaging.AndroidNotification(
-                sound="default",
-                channel_id="dhav_incoming_orders" if high_priority else "dhav_general",
-                default_vibrate_timings=high_priority,
-            ),
+            ttl=_ORDER_NOTIF_TTL if high_priority else None,
+            collapse_key=collapse_key,
         ),
     )
     try:
-        messaging.send_multicast(msg)
-    except Exception:
-        pass
+        resp = messaging.send_each_for_multicast(msg)
+        print(f"[FCM] _send_multicast result: success={resp.success_count}  failure={resp.failure_count}")
+        for i, r in enumerate(resp.responses):
+            if not r.success:
+                print(f"[FCM]   token[{i}] FAILED: {r.exception}")
+    except Exception as e:
+        print(f"[FCM] _send_multicast FAILED  title='{title}'  error={type(e).__name__}: {e}")
 
 
 # ── Store notifications ────────────────────────────────────────────────────────

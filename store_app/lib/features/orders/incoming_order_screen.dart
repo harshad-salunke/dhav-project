@@ -8,6 +8,7 @@ import '../../core/models/order.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/providers/store_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../main.dart' show fcmService;
 
 // ── Screen 1: Quick-Accept Popup ─────────────────────────────────────────────
 
@@ -41,6 +42,10 @@ class _IncomingOrderScreenState extends State<IncomingOrderScreen> {
         _timerNotifier.value--;
       }
     });
+    // Ring continuously like an incoming phone call. The notification's
+    // built-in sound only plays for ~1s before the activity launch
+    // dismisses it, so we restart it here on loop until the user responds.
+    fcmService.startRingtone();
     _load();
   }
 
@@ -64,6 +69,7 @@ class _IncomingOrderScreenState extends State<IncomingOrderScreen> {
   void dispose() {
     _timer?.cancel();
     _timerNotifier.dispose();
+    fcmService.stopRingtone();
     super.dispose();
   }
 

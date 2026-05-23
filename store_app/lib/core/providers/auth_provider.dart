@@ -28,15 +28,31 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    try {
-      _user = await _service.verifyTokenWithBackend();
-      _status = AuthStatus.signedIn;
-    } catch (e) {
-      // Token invalid or backend unreachable; force re-login.
-      await _service.signOut();
-      _status = AuthStatus.signedOut;
-      _error = 'Session expired. Please sign in again.';
+    // Retry backend verify up to 3 times with short backoff — the first call
+    // after install is often racy (backend hasn't seen the brand-new
+    // Firebase user yet, or network is still warming up). Only force
+    // re-login if every attempt fails.
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        _user = await _service.verifyTokenWithBackend();
+        _status = AuthStatus.signedIn;
+        notifyListeners();
+        return;
+      } catch (e) {
+        lastError = e;
+        if (kDebugMode) {
+          print('[Auth] bootstrap attempt ${attempt + 1} failed: $e');
+        }
+        await Future.delayed(Duration(milliseconds: 600 * (attempt + 1)));
+      }
     }
+    if (kDebugMode) {
+      print('[Auth] bootstrap: all retries exhausted, forcing re-login. last=$lastError');
+    }
+    await _service.signOut();
+    _status = AuthStatus.signedOut;
+    _error = 'Session expired. Please sign in again.';
     notifyListeners();
   }
 

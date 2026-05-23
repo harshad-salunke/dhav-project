@@ -128,7 +128,11 @@ class _StoreRegistrationScreenState extends State<StoreRegistrationScreen> {
           ),
         ),
       );
-      navigator.pushNamedAndRemoveUntil(AppRoutes.dashboard, (_) => false);
+      navigator.pushNamedAndRemoveUntil(
+        AppRoutes.permissionGate,
+        (_) => false,
+        arguments: AppRoutes.dashboard,
+      );
     } else if (auth.error != null) {
       messenger.showSnackBar(SnackBar(content: Text(auth.error!)));
     }

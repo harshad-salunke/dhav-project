@@ -165,8 +165,11 @@ async def update_fcm_token(
     user_node = db.reference(f"users/{user.uid}").get() or {}
     store_id = user_node.get("store_id")
     if not store_id:
+        print(f"[FCM-TOKEN] FAILED: user.uid={user.uid} has no store_id")
         raise HTTPException(status_code=404, detail="Store not found")
     db.reference(f"stores/{store_id}").update({"fcm_token": body.fcm_token})
+    tok = body.fcm_token or ""
+    print(f"[FCM-TOKEN] SAVED for store_id={store_id}  token=...{tok[-20:] if tok else 'EMPTY'} (last 20 chars)")
     return {"status": "updated"}
 
 

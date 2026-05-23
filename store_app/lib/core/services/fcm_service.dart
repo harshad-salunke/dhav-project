@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vibration/vibration.dart';
 
@@ -30,9 +31,9 @@ Future<void> _backgroundHandler(RemoteMessage message) async {
   await localNotifs.initialize(const InitializationSettings(android: android));
 
   final isOrder = data['type'] == 'new_order';
-  final title = message.notification?.title ??
+  final title = data['title'] ?? message.notification?.title ??
       (isOrder ? 'New Order! 🛒' : 'New Delivery Assignment!');
-  final body = message.notification?.body ??
+  final body = data['body'] ?? message.notification?.body ??
       (isOrder
           ? '${data['item_count'] ?? '?'} items · ₹${data['total'] ?? '?'} — Accept now!'
           : 'You have a new delivery assignment');
@@ -47,6 +48,10 @@ Future<void> _backgroundHandler(RemoteMessage message) async {
     category: AndroidNotificationCategory.call,
     visibility: NotificationVisibility.public,
     playSound: true,
+    sound: RawResourceAndroidNotificationSound('order_alert'),
+    // notificationRingtone usage makes audio play at RINGTONE volume — bypasses
+    // silent / vibrate / DND modes (same behavior as an incoming phone call).
+    audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
   );
   await localNotifs.show(
     data['order_id'].hashCode,
@@ -79,7 +84,12 @@ class FcmService {
   Future<void> init() async {
     final messaging = FirebaseMessaging.instance;
 
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    final settings = await messaging.requestPermission(
+      alert: true, badge: true, sound: true,
+    );
+    if (kDebugMode) {
+      print('[FCM] Permission status: ${settings.authorizationStatus}');
+    }
     await messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
@@ -90,11 +100,23 @@ class FcmService {
 
     await _initLocalNotifications();
 
-    _fgSub = FirebaseMessaging.onMessage.listen(_handleMessage);
+    _fgSub = FirebaseMessaging.onMessage.listen((msg) {
+      if (kDebugMode) {
+        print('[FCM] Foreground message: ${msg.data}');
+      }
+      _handleMessage(msg);
+    });
     _openSub = FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
 
     final initial = await messaging.getInitialMessage();
     if (initial != null) _handleMessage(initial);
+
+    if (kDebugMode) {
+      final token = await messaging.getToken();
+      print('[FCM] ====== FCM TOKEN ======');
+      print(token);
+      print('[FCM] =======================');
+    }
   }
 
   Future<void> _initLocalNotifications() async {
@@ -111,6 +133,27 @@ class FcmService {
       },
     );
 
+    final androidPlugin = _localNotifs
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    // Android 13+ requires explicit POST_NOTIFICATIONS permission.
+    final granted = await androidPlugin?.requestNotificationsPermission();
+    if (kDebugMode) {
+      print('[FCM] POST_NOTIFICATIONS granted: $granted');
+    }
+
+    // Android 14+ requires explicit permission for full-screen intent (Uber-style
+    // popup that bypasses the lock screen / launches the activity automatically).
+    final fsiGranted = await androidPlugin?.requestFullScreenIntentPermission();
+    if (kDebugMode) {
+      print('[FCM] FULL_SCREEN_INTENT granted: $fsiGranted');
+    }
+
+    // Delete before recreating — Android never updates sound on an existing
+    // channel, so we force a fresh channel every cold start.
+    await androidPlugin?.deleteNotificationChannel(_channelId);
+
     final channel = AndroidNotificationChannel(
       _channelId,
       'Incoming Orders',
@@ -119,11 +162,10 @@ class FcmService {
       playSound: true,
       sound: _alertSound,
       enableVibration: true,
+      // ringtone volume + bypass silent / DND — same as an incoming call.
+      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     );
-    await _localNotifs
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+    await androidPlugin?.createNotificationChannel(channel);
   }
 
   void _handleMessage(RemoteMessage message) {
@@ -146,7 +188,7 @@ class FcmService {
   }) async {
     try {
       await _player.play(AssetSource('sounds/order_alert.mp3'),
-          volume: 1.0, mode: PlayerMode.lowLatency);
+          volume: 1.0, mode: PlayerMode.mediaPlayer);
     } catch (e) {
       if (kDebugMode) print('order alert sound failed: $e');
     }
@@ -170,13 +212,14 @@ class FcmService {
       visibility: NotificationVisibility.public,
       playSound: true,
       sound: _alertSound,
+      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     );
     await _localNotifs.show(
       data['order_id'].hashCode,
       notif?.title ?? 'New Order! 🛒',
       notif?.body ??
           '${data['item_count'] ?? '?'} items · ₹${data['total'] ?? '?'} — Accept now!',
-      const NotificationDetails(android: androidDetails),
+      NotificationDetails(android: androidDetails),
       payload: data['order_id'],
     );
   }
@@ -187,7 +230,7 @@ class FcmService {
   }) async {
     try {
       await _player.play(AssetSource('sounds/order_alert.mp3'),
-          volume: 1.0, mode: PlayerMode.lowLatency);
+          volume: 1.0, mode: PlayerMode.mediaPlayer);
     } catch (e) {
       if (kDebugMode) print('delivery alert sound failed: $e');
     }
@@ -199,7 +242,7 @@ class FcmService {
       }
     } catch (_) {}
 
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       _channelId,
       'Incoming Orders',
       channelDescription: 'High-priority alerts for new orders',
@@ -208,14 +251,106 @@ class FcmService {
       fullScreenIntent: true,
       category: AndroidNotificationCategory.call,
       visibility: NotificationVisibility.public,
+      playSound: true,
+      sound: _alertSound,
+      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     );
     await _localNotifs.show(
       data['order_id'].hashCode,
       notif?.title ?? 'New Delivery Assignment!',
       notif?.body ?? 'You have a new delivery assignment',
-      const NotificationDetails(android: androidDetails),
+      NotificationDetails(android: androidDetails),
       payload: data['order_id'],
     );
+  }
+
+  /// Returns the order_id that launched the app via a tapped notification
+  /// (cold-start case), or null if the app was launched normally. Call this
+  /// after listeners are attached so the navigation runs.
+  Future<String?> getInitialNotificationOrderId() async {
+    final details = await _localNotifs.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp == true) {
+      final payload = details?.notificationResponse?.payload;
+      if (payload != null && payload.isNotEmpty) return payload;
+    }
+    return null;
+  }
+
+  /// Method channel to the native side (DhavMessagingService / MainActivity)
+  /// which force-launches MainActivity when an order arrives while the
+  /// screen is on. Native caches the order_id in MainActivity; we pull it
+  /// here once Dart's navigator is ready.
+  static const MethodChannel _incomingOrderChannel =
+      MethodChannel('com.dhav.store_app/incoming_order');
+
+  /// Returns `{order_id, type}` from the native side if a force-launch is
+  /// pending, otherwise null. Native clears the pending state on read.
+  Future<Map<String, String?>?> consumePendingNativeOrder() async {
+    try {
+      final result = await _incomingOrderChannel
+          .invokeMapMethod<String, dynamic>('consumePendingOrder');
+      if (result == null) return null;
+      return {
+        'order_id': result['order_id'] as String?,
+        'type': result['type'] as String?,
+      };
+    } catch (e) {
+      if (kDebugMode) print('[FCM] consumePendingNativeOrder failed: $e');
+      return null;
+    }
+  }
+
+  /// Listen for native-side push notifying us a new order intent has arrived
+  /// (used when the app is already running and `onNewIntent` fires). Pass
+  /// a callback that pulls + navigates.
+  void onNativePendingOrderAvailable(VoidCallback callback) {
+    _incomingOrderChannel.setMethodCallHandler((call) async {
+      if (call.method == 'pendingOrderAvailable') {
+        callback();
+      }
+      return null;
+    });
+  }
+
+  /// Starts the order ringtone on loop at ringtone volume. Call from the
+  /// IncomingOrderScreen / DeliveryIncomingAssignmentScreen as soon as the
+  /// screen mounts so the audio keeps playing like a phone call until the
+  /// user accepts or rejects (use [stopRingtone] then).
+  Future<void> startRingtone() async {
+    try {
+      await _player.stop();
+      await _player.setReleaseMode(ReleaseMode.loop);
+      await _player.setAudioContext(
+        AudioContext(
+          android: AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: true,
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.notificationRingtone,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+          ),
+        ),
+      );
+      await _player.play(
+        AssetSource('sounds/order_alert.mp3'),
+        volume: 1.0,
+        mode: PlayerMode.mediaPlayer,
+      );
+    } catch (e) {
+      if (kDebugMode) print('[FCM] startRingtone failed: $e');
+    }
+  }
+
+  Future<void> stopRingtone() async {
+    try {
+      await _player.stop();
+      await _player.setReleaseMode(ReleaseMode.release);
+    } catch (e) {
+      if (kDebugMode) print('[FCM] stopRingtone failed: $e');
+    }
   }
 
   Future<String?> getToken() => FirebaseMessaging.instance.getToken();

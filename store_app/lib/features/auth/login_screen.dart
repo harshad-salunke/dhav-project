@@ -47,9 +47,19 @@ class _LoginScreenState extends State<LoginScreen> {
     if (user.isStoreOwner) {
       fcmService.syncTokenToBackend();
       fcmService.listenForTokenRefresh();
-      Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.permissionGate,
+        arguments: AppRoutes.dashboard,
+      );
     } else if (user.isDeliveryBoy) {
-      Navigator.pushReplacementNamed(context, AppRoutes.deliveryHome);
+      fcmService.syncDeliveryTokenToBackend();
+      fcmService.listenForDeliveryTokenRefresh();
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.permissionGate,
+        arguments: AppRoutes.deliveryHome,
+      );
     } else {
       // First-time user — route to self-onboarding flow.
       Navigator.pushReplacementNamed(context, AppRoutes.registerStore);

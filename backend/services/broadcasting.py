@@ -39,20 +39,43 @@ async def _run_broadcast(order_id: str, customer_lat: float, customer_lng: float
                           item_count: int, total: float, customer_id: str) -> None:
     order_ref = db.reference(f"orders/{order_id}")
 
+    print(f"\n[BROADCAST] ============================================")
+    print(f"[BROADCAST] Starting broadcast for order_id={order_id}")
+    print(f"[BROADCAST] Customer location: lat={customer_lat}, lng={customer_lng}")
+    print(f"[BROADCAST] ============================================")
+
     for wave_num, (radius_km, timeout_sec) in enumerate(WAVES, start=1):
         current = order_ref.get()
         if not current or current.get("status") not in ("pending", "broadcasting"):
+            print(f"[BROADCAST] Wave {wave_num}: order no longer broadcasting (status={current.get('status') if current else 'None'}) — exiting")
             return  # Already accepted or cancelled
 
+        print(f"\n[BROADCAST] --- Wave {wave_num} (radius={radius_km}km, timeout={timeout_sec}s) ---")
+
         nearby = find_nearby_stores(customer_lat, customer_lng, radius_km)
+        print(f"[BROADCAST] find_nearby_stores returned {len(nearby)} store(s):")
+        for s in nearby:
+            print(f"[BROADCAST]   - store_id={s['store_id']}  dist={s.get('distance_km')}km  is_active={s.get('is_active')}  is_verified={s.get('is_verified')}  is_suspended={s.get('is_suspended')}")
+
+        if not nearby:
+            print(f"[BROADCAST] WARNING: no nearby stores found in geofence_index! Check: 1) store is_open=true, 2) store within {radius_km}km of customer, 3) store is_active=true")
+
         already_notified: set = set(current.get("broadcast_store_ids", []))
         new_stores = [s for s in nearby if s["store_id"] not in already_notified
                       and not s.get("is_suspended")]
+        print(f"[BROADCAST] After filtering (already_notified + suspended): {len(new_stores)} store(s) eligible")
 
         store_ids = [s["store_id"] for s in new_stores]
         all_store_ids = list(already_notified) + store_ids
         tokens_map = _get_store_fcm_tokens(store_ids)
         tokens = list(tokens_map.values())
+        print(f"[BROADCAST] FCM tokens lookup: {len(tokens)} of {len(store_ids)} stores have a token")
+        for sid in store_ids:
+            tok = tokens_map.get(sid)
+            if tok:
+                print(f"[BROADCAST]   - store_id={sid}  token=...{tok[-20:]} (last 20 chars)")
+            else:
+                print(f"[BROADCAST]   - store_id={sid}  token=MISSING (store never synced FCM token to backend)")
 
         order_ref.update({
             "status": "broadcasting",
@@ -63,7 +86,10 @@ async def _run_broadcast(order_id: str, customer_lat: float, customer_lng: float
         })
 
         if tokens:
+            print(f"[BROADCAST] Calling send_new_order_to_stores with {len(tokens)} token(s)...")
             send_new_order_to_stores(tokens, order_id, item_count, total)
+        else:
+            print(f"[BROADCAST] No tokens to send to in wave {wave_num}")
 
         # Wait for store acceptance or timeout
         deadline = asyncio.get_event_loop().time() + timeout_sec
