@@ -1,0 +1,10 @@
+tests/
+scripts/
+*.pdf
+sample.py
+firebase-service-account.json
+.env
+.env.*
+__pycache__/
+*.pyc
+pytest-cache-files*

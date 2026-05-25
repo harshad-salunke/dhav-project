@@ -6,6 +6,7 @@ import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
+import 'rate_order_sheet.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -209,7 +210,7 @@ class _OrderCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _statusColor.withOpacity(0.12),
+                    color: _statusColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -251,7 +252,30 @@ class _OrderCard extends StatelessWidget {
                             color: AppColors.primary,
                             fontWeight: FontWeight.w600)),
                   )
-                else if (showReorder)
+                else if (showReorder) ...[
+                  if (order.status == 'delivered' && !order.hasReview)
+                    GestureDetector(
+                      onTap: () => RateOrderSheet.show(
+                        context,
+                        orderId: order.orderId,
+                        storeName: order.storeName,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.star_outline_rounded,
+                              size: 15, color: AppColors.warning),
+                          const SizedBox(width: 4),
+                          Text('Rate',
+                              style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: AppColors.warning,
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  if (order.status == 'delivered' && !order.hasReview)
+                    const SizedBox(width: 16),
                   GestureDetector(
                     onTap: () => _reorder(context),
                     child: Text('Reorder',
@@ -260,6 +284,7 @@ class _OrderCard extends StatelessWidget {
                             color: AppColors.primary,
                             fontWeight: FontWeight.w600)),
                   ),
+                ],
               ],
             ),
           ],

@@ -142,7 +142,7 @@ class _ProtectedRoute extends StatelessWidget {
           return const Scaffold(
             backgroundColor: Color(0xFF0F1117),
             body: Center(
-              child: CircularProgressIndicator(color: Color(0xFFF97316)),
+              child: CircularProgressIndicator(color: Color(0xFF00897B)),
             ),
           );
         }

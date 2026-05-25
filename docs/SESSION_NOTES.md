@@ -39,10 +39,59 @@
 
 ## 🔖 CURRENT STATUS (Always update this at top)
 
-**Current Phase:** Phase 7 — Testing + Bug Fixes — IN PROGRESS 🔄
-**Last task completed:** Fixed 4 critical production bugs in customer app (catalog loading, nav bar, location, profile setup).
-**Next task to do:** Run `cd customer_app && flutter pub get && flutter run` to verify fixes. Then deploy backend to Railway.
-**Last updated:** 2026-05-20
+**Current Phase:** Phase 7 — Testing + Deployment — IN PROGRESS 🔄
+**Last task completed:** Backend deployed to Railway ✅ — https://dhav-backend-production.up.railway.app (health 200 OK). Flutter app configs updated to production URL.
+**Next task to do:** Build release APKs — `cd customer_app && flutter build apk --release` then `cd store_app && flutter build apk --release`.
+**Last updated:** 2026-05-25
+
+---
+
+## Session 2026-05-25 (cont.) — Order Tracking + Order Delivered Screens
+
+**Current Phase:** Phase 7 (Screen refinements)
+**Files modified:**
+- `customer_app/lib/features/orders/order_tracking_screen.dart` — REBUILT: horizontal icon row replaced with vertical animated timeline; pulsing teal dot for active step (AnimationController repeat); green checkmark circles for completed steps; connector lines between steps; "In Progress" badge (fades in/out); delivery boy card at bottom with call button; map section with ETA chip; "I have a problem" link; when status=`delivered` auto-navigates to `/order-delivered` via `pushReplacementNamed`
+- `customer_app/lib/features/orders/order_delivered_screen.dart` — NEW (Screen 15): confetti particle animation via CustomPainter (48 particles, seeded deterministic positions, fade-out at end); scale-in green checkmark (elasticOut curve); collapsible order summary card (items + fee breakdown); "Rate this delivery" prompt card → calls RateOrderSheet; "Order Again" + "Back to Home" buttons
+- `customer_app/lib/core/constants/app_routes.dart` — Added `orderDelivered = '/order-delivered'`
+- `customer_app/lib/main.dart` — Imported + registered `OrderDeliveredScreen` route
+
+### NEXT TIME — START HERE:
+**Phase 7.2 — Deploy Backend to Railway**
+1. `cd backend && railway login`
+2. `railway up` (from backend/ folder)
+3. Set env vars on Railway dashboard: `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_DATABASE_URL`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`
+4. Note the Railway URL → update `customer_app/lib/core/config/api_config.dart` + `store_app/lib/core/config/api_config.dart`
+
+---
+
+## Session 2026-05-25 — Customer Rating System + Feature Audit
+
+**Current Phase:** Phase 7 (Testing + Deployment)
+**Files modified:**
+- `backend/routers/orders.py` — NEW: `POST /orders/{id}/review` — validates delivered + unreviewed + same customer, writes to `reviews/{store_id}/{review_id}`, updates store avg rating, marks order `has_review: true`
+- `customer_app/lib/core/models/order.dart` — Added `hasReview` field (parsed from `has_review`)
+- `customer_app/lib/core/providers/order_provider.dart` — Added `reviewOrder()` method + `loadOrder()` helper
+- `customer_app/lib/features/orders/rate_order_sheet.dart` — NEW: 5-star tap rating widget, optional comment field, animated taglines per star level, Skip button
+- `customer_app/lib/features/orders/order_history_screen.dart` — Added "Rate" button (with star icon) on delivered past orders without review; hides after rating submitted
+
+### What was already built since last notes (since 2026-05-20):
+- Full address management system (AddressSelectionSheet, AddAddressMapScreen, AddAddressDetailScreen, SavedAddressesScreen)
+- Improved home screen with hero banner, scooter animation, shimmer loading
+- Broadcasting screen with animated shop pop-in badges
+- Store app: self-registration screen (Google Maps pin), settings, theme provider (dark/light), help/support, notifications, native Android FCM cold-launch handler (DhavMessagingService.kt)
+- Backend: `/catalog/stores/nearby`, `/catalog/stores/nearby/all`, `/catalog/stores/{id}` endpoints
+- CatalogProvider extended with `allNearbyStores` and nearby store list
+
+### NEXT TIME — START HERE:
+**Phase 7.2 — Deploy Backend to Railway**
+1. `cd backend && railway login`
+2. `railway up` (from backend/ folder)
+3. Set env vars on Railway dashboard: `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_DATABASE_URL`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`
+4. Note the Railway URL → update `customer_app/lib/core/config/api_config.dart` + `store_app/lib/core/config/api_config.dart`
+
+**Phase 7.4 — Build Release APKs**
+1. `cd customer_app && flutter build apk --release`
+2. `cd store_app && flutter build apk --release`
 
 ---
 

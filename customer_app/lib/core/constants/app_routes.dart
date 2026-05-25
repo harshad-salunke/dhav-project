@@ -14,4 +14,5 @@ class AppRoutes {
   static const orderDetail = '/order-detail';
   static const profile = '/profile';
   static const notifications = '/notifications';
+  static const orderDelivered = '/order-delivered';
 }

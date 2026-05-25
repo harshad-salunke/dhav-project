@@ -4,8 +4,8 @@ class ApiConfig {
   /// Default points to Android emulator's localhost (10.0.2.2) on port 8000.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    // defaultValue: 'http://10.0.2.2:8000'
-    defaultValue: 'http://10.221.74.78:8000',
+    // defaultValue: 'http://10.0.2.2:8000'  // Android emulator (local)
+    defaultValue: 'https://dhav-backend-production.up.railway.app',
   );
 
   /// WebSocket base URL (ws:// or wss://)

@@ -22,6 +22,7 @@ import 'features/cart/cart_screen.dart';
 import 'features/orders/broadcasting_screen.dart';
 import 'features/orders/order_accepted_screen.dart';
 import 'features/orders/order_tracking_screen.dart';
+import 'features/orders/order_delivered_screen.dart';
 import 'features/orders/order_history_screen.dart';
 import 'features/address/saved_addresses_screen.dart';
 import 'features/profile/profile_screen.dart';
@@ -81,6 +82,7 @@ class DhavCustomerApp extends StatelessWidget {
           AppRoutes.broadcasting: (_) => const BroadcastingScreen(),
           AppRoutes.orderAccepted: (_) => const OrderAcceptedScreen(),
           AppRoutes.orderTracking: (_) => const OrderTrackingScreen(),
+          AppRoutes.orderDelivered: (_) => const OrderDeliveredScreen(),
           AppRoutes.orderHistory: (_) => const OrderHistoryScreen(),
           AppRoutes.profile: (_) => const ProfileScreen(),
           AppRoutes.notifications: (_) => const NotificationsScreen(),

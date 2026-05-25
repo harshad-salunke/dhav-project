@@ -15,6 +15,8 @@ class CatalogProvider extends ChangeNotifier {
   int _storesFound = 0;
   double? _lat;
   double? _lng;
+  String? _areaName;
+  bool _loadedOnce = false;
 
   /// All items, with isAvailable reflecting whether each item is in a nearby store.
   /// When no location is known, all active catalog items are returned as-is.
@@ -34,8 +36,32 @@ class CatalogProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get allNearbyStores => _allNearbyStores;
   double? get userLat => _lat;
   double? get userLng => _lng;
+  String? get areaName => _areaName;
+  bool get loadedOnce => _loadedOnce;
 
-  Future<void> loadCatalog({double? lat, double? lng}) async {
+  void setAreaName(String name) {
+    if (_areaName == name) return;
+    _areaName = name;
+    notifyListeners();
+  }
+
+  /// Returns true if the given coordinates are within ~50m of the last load,
+  /// so we can skip an unnecessary network round-trip.
+  bool _sameLocation(double? lat, double? lng) {
+    if (lat == null || lng == null || _lat == null || _lng == null) {
+      return lat == _lat && lng == _lng;
+    }
+    return (lat - _lat!).abs() < 0.0005 && (lng - _lng!).abs() < 0.0005;
+  }
+
+  Future<void> loadCatalog({double? lat, double? lng, bool force = false}) async {
+    // Skip refetch if we already have data for (essentially) this location.
+    if (!force &&
+        _loadedOnce &&
+        !_loading &&
+        _sameLocation(lat, lng)) {
+      return;
+    }
     _loading = true;
     _error = null;
     if (lat != null && lng != null) {
@@ -71,9 +97,9 @@ class CatalogProvider extends ChangeNotifier {
       // When location is known, load nearby availability + store list
       if (_lat != null && _lng != null) {
         final nearbyResults = await Future.wait([
-          ApiClient.get('/catalog/items/nearby?lat=$_lat&lng=$_lng&radius_km=10'),
-          ApiClient.get('/catalog/stores/nearby?lat=$_lat&lng=$_lng&radius_km=10'),
-          ApiClient.get('/catalog/stores/nearby/all?lat=$_lat&lng=$_lng&radius_km=10'),
+          ApiClient.get('/catalog/items/nearby?lat=$_lat&lng=$_lng&radius_km=3'),
+          ApiClient.get('/catalog/stores/nearby?lat=$_lat&lng=$_lng&radius_km=3'),
+          ApiClient.get('/catalog/stores/nearby/all?lat=$_lat&lng=$_lng&radius_km=3'),
         ]);
 
         if (nearbyResults[0].statusCode == 200) {
@@ -105,6 +131,7 @@ class CatalogProvider extends ChangeNotifier {
           _allNearbyStores = List<Map<String, dynamic>>.from(data);
         }
       }
+      _loadedOnce = true;
     } catch (e) {
       _error = e.toString();
     } finally {

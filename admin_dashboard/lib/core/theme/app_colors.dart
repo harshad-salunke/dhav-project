@@ -9,8 +9,8 @@ class AppColors {
   static const Color border = Color(0xFF2E3347);
 
   // Brand
-  static const Color orange = Color(0xFFF97316);
-  static const Color orangeLight = Color(0xFFFFEDD5);
+  static const Color orange = Color(0xFF00897B);
+  static const Color orangeLight = Color(0xFFE0F2F1);
 
   // Status
   static const Color green = Color(0xFF22C55E);

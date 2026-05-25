@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
@@ -75,7 +76,23 @@ class _IncomingOrderScreenState extends State<IncomingOrderScreen> {
 
   void _autoReject() {
     if (!mounted) return;
-    Navigator.of(context).popUntil(
+    _exitToDashboard();
+  }
+
+  /// Behave like declining a phone call. If this popup was opened from
+  /// within the app (dashboard already on the stack), pop back to it.
+  /// If it was force-launched over another app (no route underneath),
+  /// close the activity so the user returns to whatever they were doing
+  /// — WhatsApp, home screen, lock screen, etc.
+  void _exitToDashboard() {
+    final navigator = Navigator.of(context);
+    if (!navigator.canPop()) {
+      // Force-launch case — only this popup is in the stack. Closing the
+      // activity returns control to the previous task/launcher.
+      SystemNavigator.pop();
+      return;
+    }
+    navigator.popUntil(
       (route) => route.settings.name == AppRoutes.dashboard || route.isFirst,
     );
   }
@@ -105,7 +122,7 @@ class _IncomingOrderScreenState extends State<IncomingOrderScreen> {
       await context.read<OrderProvider>().reject(_order!.orderId);
     } catch (_) {}
     _timer?.cancel();
-    if (mounted) Navigator.pop(context);
+    if (mounted) _exitToDashboard();
   }
 
   void _openDetails() {

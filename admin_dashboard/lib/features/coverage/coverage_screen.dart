@@ -201,7 +201,7 @@ class _CoverageScreenState extends State<CoverageScreen> {
     .store-popup .view-btn {
       display: block;
       width: 100%;
-      background: #F97316;
+      background: #00897B;
       color: white;
       border: none;
       border-radius: 8px;
@@ -213,7 +213,7 @@ class _CoverageScreenState extends State<CoverageScreen> {
       text-align: center;
       transition: background 0.15s;
     }
-    .store-popup .view-btn:hover { background: #EA580C; }
+    .store-popup .view-btn:hover { background: #00695C; }
 
     .customer-popup {
       font-family: -apple-system, sans-serif;
@@ -272,7 +272,7 @@ class _CoverageScreenState extends State<CoverageScreen> {
     <h5>Map Legend</h5>
     <div class="leg"><div class="leg-dot" style="background:#22C55E"></div><span>Customer — shop nearby</span></div>
     <div class="leg"><div class="leg-dot" style="background:#EF4444"></div><span>Customer — no shop</span></div>
-    <div class="leg"><div class="leg-ring" style="border-color:#F97316;background:rgba(249,115,22,0.12)"></div><span>Store</span></div>
+    <div class="leg"><div class="leg-ring" style="border-color:#00897B;background:rgba(0,137,123,0.12)"></div><span>Store</span></div>
     <div class="leg-sep"></div>
     <div class="leg leg-note">Coverage radius: 2 km · Click markers for details</div>
   </div>
@@ -312,7 +312,7 @@ class _CoverageScreenState extends State<CoverageScreen> {
       if (isNaN(sLat) || isNaN(sLng)) return;
 
       var isOnline = s.is_active && !s.is_suspended;
-      var bg = isOnline ? '#F97316' : '#475569';
+      var bg = isOnline ? '#00897B' : '#475569';
 
       var icon = L.divIcon({
         className: '',

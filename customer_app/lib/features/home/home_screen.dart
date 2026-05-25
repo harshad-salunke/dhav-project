@@ -57,12 +57,20 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _detectLocation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<OrderProvider>().loadHistory();
-        context.read<AddressProvider>().loadAddresses();
+      if (!mounted) return;
+      final catalog = context.read<CatalogProvider>();
+      if (catalog.loadedOnce && catalog.hasLocation) {
+        // Reuse cached location/catalog — no GPS lookup, no API call.
+        setState(() {
+          _areaName = catalog.areaName ?? 'Pune';
+          _locating = false;
+        });
+      } else {
+        _detectLocation();
       }
+      context.read<OrderProvider>().loadHistory();
+      context.read<AddressProvider>().loadAddresses();
     });
 
     _shimmerCtrl = AnimationController(
@@ -106,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _detectLocation() async {
+  Future<void> _detectLocation({bool force = false}) async {
     setState(() {
       _areaName = 'Detecting location…';
       _locating = true;
@@ -121,7 +129,9 @@ class _HomeScreenState extends State<HomeScreen>
           _areaName = 'Location access denied';
           _locating = false;
         });
-        if (mounted) context.read<CatalogProvider>().loadCatalog();
+        if (mounted) {
+          context.read<CatalogProvider>().loadCatalog(force: force);
+        }
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
@@ -132,9 +142,10 @@ class _HomeScreenState extends State<HomeScreen>
           _areaName = area;
           _locating = false;
         });
-        context
-            .read<CatalogProvider>()
-            .loadCatalog(lat: pos.latitude, lng: pos.longitude);
+        final catalog = context.read<CatalogProvider>();
+        catalog.setAreaName(area);
+        catalog.loadCatalog(
+            lat: pos.latitude, lng: pos.longitude, force: force);
       }
     } catch (_) {
       if (mounted) {
@@ -142,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen>
           _areaName = 'Pune';
           _locating = false;
         });
-        context.read<CatalogProvider>().loadCatalog();
+        context.read<CatalogProvider>().loadCatalog(force: force);
       }
     }
   }
@@ -224,7 +235,7 @@ class _HomeScreenState extends State<HomeScreen>
                   // ── DHAV tab ──────────────────────────────────────────
                   RefreshIndicator(
                     color: AppColors.primary,
-                    onRefresh: _detectLocation,
+                    onRefresh: () => _detectLocation(force: true),
                     child: CustomScrollView(
                       slivers: [
                         const SliverToBoxAdapter(child: HeroBanner()),
@@ -982,7 +993,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 16),
             GestureDetector(
-              onTap: _detectLocation,
+              onTap: () => _detectLocation(force: true),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 24, vertical: 10),

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/saved_address.dart';
 import '../../core/providers/address_provider.dart';
+import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
 import 'add_address_map_screen.dart';
 import 'add_address_detail_screen.dart';
@@ -49,7 +50,12 @@ class SavedAddressesScreen extends StatelessWidget {
                     return _AddressCard(
                       address: addr,
                       isSelected: isSelected,
-                      onSelect: () => addrProvider.selectAddress(addr),
+                      onSelect: () {
+                        addrProvider.selectAddress(addr);
+                        context
+                            .read<CatalogProvider>()
+                            .loadCatalog(lat: addr.lat, lng: addr.lng);
+                      },
                       onEdit: () async {
                         await Navigator.push(
                           context,

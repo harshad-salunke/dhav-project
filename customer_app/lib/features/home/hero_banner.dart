@@ -18,21 +18,21 @@ const _kCards = [
     '10–20 min',
     'Express delivery to your door',
     '🛒',
-    [Color(0xFFFF7A2F), Color(0xFFEA6A00)],
+    [Color(0xFF26A69A), Color(0xFF00897B)],
   ),
   _Card(
     '🏪',
     'Local kirana',
     'Trusted stores right near you',
     '🌾',
-    [Color(0xFFE8600A), Color(0xFFD45000)],
+    [Color(0xFF00897B), Color(0xFF00695C)],
   ),
   _Card(
     '🛵',
     'Live tracking',
     'Watch your order arrive in real time',
     '📍',
-    [Color(0xFFD94F00), Color(0xFFC24400)],
+    [Color(0xFF00796B), Color(0xFF004D40)],
   ),
 ];
 

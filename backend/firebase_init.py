@@ -18,7 +18,7 @@ def _build_credentials() -> credentials.Certificate:
     Railway can't mount files, so we read the JSON from an env var there.
     Locally the file path still works as before.
     """
-    json_str = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+    json_str = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip().lstrip('﻿')
     if json_str:
         service_account_info = json.loads(json_str)
         return credentials.Certificate(service_account_info)

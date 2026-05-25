@@ -1,3 +1,5 @@
+import math
+
 import pygeohash as geohash
 from firebase_admin import db
 
@@ -33,40 +35,29 @@ def remove_store_from_geofence_index(store_id: str, lat: float, lng: float) -> N
     db.reference(f"geofence_index/{gh}/{store_id}").delete()
 
 
-def _get_adjacent(hash_str: str, direction: str) -> str:
-    """pygeohash has no get_adjacent; derive neighbor via decode+offset+encode."""
-    lat, lng, lat_err, lng_err = geohash.decode_exactly(hash_str)
-    precision = len(hash_str)
-    if direction == "top":
-        return geohash.encode(lat + 2 * lat_err, lng, precision=precision)
-    if direction == "bottom":
-        return geohash.encode(lat - 2 * lat_err, lng, precision=precision)
-    if direction == "right":
-        return geohash.encode(lat, lng + 2 * lng_err, precision=precision)
-    if direction == "left":
-        return geohash.encode(lat, lng - 2 * lng_err, precision=precision)
-    raise ValueError(f"Unknown direction: {direction}")
-
-
-def _get_all_neighbors(center: str) -> list:
-    """Return the 8 surrounding geohash cells (cardinal + diagonal)."""
-    top    = _get_adjacent(center, "top")
-    bottom = _get_adjacent(center, "bottom")
-    right  = _get_adjacent(center, "right")
-    left   = _get_adjacent(center, "left")
-    return [
-        top, bottom, right, left,
-        _get_adjacent(top,    "right"),
-        _get_adjacent(top,    "left"),
-        _get_adjacent(bottom, "right"),
-        _get_adjacent(bottom, "left"),
-    ]
+def _cells_covering_radius(lat: float, lng: float, radius_km: float) -> list:
+    """Return every geohash cell that could contain a store within `radius_km`
+    of (lat, lng). Walks a grid sized to the requested radius, so the caller
+    no longer has to assume a fixed 3x3 block."""
+    center = _encode(lat, lng)
+    _, _, lat_err, lng_err = geohash.decode_exactly(center)
+    # 1 degree of latitude ~= 111 km; longitude scales by cos(lat).
+    cell_h_km = max(2 * lat_err * 111.0, 0.01)
+    cell_w_km = max(2 * lng_err * 111.0 * math.cos(math.radians(lat)), 0.01)
+    # +1 step of slack so a store sitting on the far edge of a corner cell
+    # still gets picked up after the haversine filter.
+    steps_lat = int(math.ceil(radius_km / cell_h_km)) + 1
+    steps_lng = int(math.ceil(radius_km / cell_w_km)) + 1
+    cells = set()
+    for dy in range(-steps_lat, steps_lat + 1):
+        for dx in range(-steps_lng, steps_lng + 1):
+            cells.add(_encode(lat + dy * 2 * lat_err, lng + dx * 2 * lng_err))
+    return list(cells)
 
 
 def find_nearby_stores(customer_lat: float, customer_lng: float,
                         radius_km: float) -> list:
-    center_hash = _encode(customer_lat, customer_lng)
-    cells_to_check = [center_hash] + _get_all_neighbors(center_hash)
+    cells_to_check = _cells_covering_radius(customer_lat, customer_lng, radius_km)
 
     results = []
     for cell in cells_to_check:
@@ -89,8 +80,7 @@ def find_nearby_stores(customer_lat: float, customer_lng: float,
 def find_all_stores_in_radius(customer_lat: float, customer_lng: float,
                                radius_km: float) -> list:
     """Like find_nearby_stores but includes inactive/suspended stores (for map display)."""
-    center_hash = _encode(customer_lat, customer_lng)
-    cells_to_check = [center_hash] + _get_all_neighbors(center_hash)
+    cells_to_check = _cells_covering_radius(customer_lat, customer_lng, radius_km)
 
     results = []
     for cell in cells_to_check:

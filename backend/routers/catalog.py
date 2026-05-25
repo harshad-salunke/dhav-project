@@ -52,7 +52,7 @@ async def get_nearby_stores_list(
         store_node = db.reference(f"stores/{s['store_id']}").get() or {}
         enriched.append({
             "store_id": s["store_id"],
-            "name": store_node.get("name", "Kirana Store"),
+            "name": store_node.get("shop_name") or store_node.get("name") or "Kirana Store",
             "area": store_node.get("area", ""),
             "lat": s["lat"],
             "lng": s["lng"],
@@ -76,7 +76,7 @@ async def get_all_nearby_stores(
         store_node = db.reference(f"stores/{s['store_id']}").get() or {}
         enriched.append({
             "store_id": s["store_id"],
-            "name": store_node.get("name", "Kirana Store"),
+            "name": store_node.get("shop_name") or store_node.get("name") or "Kirana Store",
             "area": store_node.get("area", ""),
             "lat": s["lat"],
             "lng": s["lng"],

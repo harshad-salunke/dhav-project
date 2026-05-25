@@ -66,9 +66,7 @@ class _DeliveryIncomingAssignmentScreenState
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_secondsLeft <= 0) {
         t.cancel();
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, AppRoutes.deliveryHome);
-        }
+        if (mounted) _exitOrPop();
       } else {
         if (mounted) setState(() => _secondsLeft--);
         if (_secondsLeft <= 10) HapticFeedback.selectionClick();
@@ -96,7 +94,20 @@ class _DeliveryIncomingAssignmentScreenState
 
   void _decline() {
     _timer?.cancel();
-    Navigator.pushReplacementNamed(context, AppRoutes.deliveryHome);
+    _exitOrPop();
+  }
+
+  /// Phone-call-style dismiss. If the screen was force-launched over
+  /// another app (only route in the stack), close the activity and return
+  /// the user to whatever they were doing. Otherwise, jump back to the
+  /// delivery home screen.
+  void _exitOrPop() {
+    final navigator = Navigator.of(context);
+    if (!navigator.canPop()) {
+      SystemNavigator.pop();
+      return;
+    }
+    navigator.pushReplacementNamed(AppRoutes.deliveryHome);
   }
 
   @override

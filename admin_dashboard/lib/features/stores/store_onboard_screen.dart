@@ -103,7 +103,7 @@ class _StoreOnboardScreenState extends State<StoreOnboardScreen> {
       left: 50%;
       transform: translateX(-50%);
       background: rgba(26,31,46,0.92);
-      color: #F97316;
+      color: #00897B;
       padding: 6px 16px;
       border-radius: 20px;
       font-family: sans-serif;

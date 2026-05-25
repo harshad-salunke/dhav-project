@@ -129,6 +129,59 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
+  Future<CustomerOrder?> loadOrder(String orderId) async {
+    try {
+      final resp = await ApiClient.get('/orders/$orderId');
+      if (resp.statusCode == 200) {
+        return CustomerOrder.fromJson(
+            jsonDecode(resp.body) as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Submit a star rating (1–5) and optional comment for a delivered order.
+  /// Returns true on success. On success, marks the local order as reviewed.
+  Future<bool> reviewOrder(String orderId,
+      {required int rating, String? comment}) async {
+    try {
+      final resp = await ApiClient.post('/orders/$orderId/review', {
+        'rating': rating,
+        if (comment != null && comment.isNotEmpty) 'comment': comment,
+      });
+      if (resp.statusCode == 201) {
+        _orders = _orders.map((o) {
+          if (o.orderId == orderId) {
+            return CustomerOrder(
+              orderId: o.orderId,
+              customerId: o.customerId,
+              status: o.status,
+              items: o.items,
+              deliveryAddress: o.deliveryAddress,
+              deliveryLat: o.deliveryLat,
+              deliveryLng: o.deliveryLng,
+              productTotal: o.productTotal,
+              deliveryFee: o.deliveryFee,
+              platformFee: o.platformFee,
+              storeId: o.storeId,
+              storeName: o.storeName,
+              storePhone: o.storePhone,
+              deliveryBoyName: o.deliveryBoyName,
+              deliveryBoyPhone: o.deliveryBoyPhone,
+              wsChannelId: o.wsChannelId,
+              createdAt: o.createdAt,
+              hasReview: true,
+            );
+          }
+          return o;
+        }).toList();
+        notifyListeners();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   void clearActiveOrder() {
     _activeOrder = null;
     notifyListeners();

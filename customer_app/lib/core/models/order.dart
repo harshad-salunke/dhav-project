@@ -41,6 +41,7 @@ class CustomerOrder {
   final String? deliveryBoyPhone;
   final String? wsChannelId;
   final DateTime? createdAt;
+  final bool hasReview;
 
   const CustomerOrder({
     required this.orderId,
@@ -60,6 +61,7 @@ class CustomerOrder {
     this.deliveryBoyPhone,
     this.wsChannelId,
     this.createdAt,
+    this.hasReview = false,
   });
 
   double get grandTotal => (productTotal ?? 0) + (deliveryFee ?? 0);
@@ -116,5 +118,6 @@ class CustomerOrder {
         createdAt: j['created_at'] != null
             ? DateTime.tryParse(j['created_at'].toString())
             : null,
+        hasReview: j['has_review'] == true,
       );
 }

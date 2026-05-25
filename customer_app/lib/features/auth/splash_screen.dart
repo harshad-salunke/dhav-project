@@ -414,10 +414,10 @@ class _RadialBurstPainter extends CustomPainter {
       ..shader = RadialGradient(
         center: Alignment.center,
         colors: const [
-          Color(0xFFFF8C3A),
-          Color(0xFFF97316),
-          Color(0xFFEA6A00),
-          Color(0xFFCC5500),
+          Color(0xFF80CBC4),
+          Color(0xFF26A69A),
+          Color(0xFF00897B),
+          Color(0xFF00695C),
         ],
         stops: const [0.0, 0.25, 0.6, 1.0],
       ).createShader(

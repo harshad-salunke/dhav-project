@@ -392,3 +392,51 @@ async def my_delivery_assignments(
     orders = sorted(all_orders.values(),
                     key=lambda o: o.get("created_at", 0), reverse=True)
     return {"orders": orders}
+
+
+# ── Customer: Rate delivered order ────────────────────────────────────────────
+
+@router.post("/{order_id}/review", status_code=201)
+async def review_order(
+    order_id: str,
+    body: dict,
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    """Submit a 1–5 star rating (+ optional comment) for a delivered order."""
+    rating = body.get("rating")
+    if not isinstance(rating, (int, float)) or not (1 <= rating <= 5):
+        raise HTTPException(status_code=422, detail="rating must be 1–5")
+
+    order = _get_order_or_404(order_id)
+    if order.get("customer_id") != user.uid:
+        raise HTTPException(status_code=403, detail="Not your order")
+    if order.get("status") != "delivered":
+        raise HTTPException(status_code=409, detail="Order not yet delivered")
+    if order.get("has_review"):
+        raise HTTPException(status_code=409, detail="Order already reviewed")
+
+    store_id = order.get("accepted_by_store_id")
+    if not store_id:
+        raise HTTPException(status_code=409, detail="No store assigned to this order")
+
+    review_id = new_id()
+    review_data = {
+        "review_id": review_id,
+        "order_id": order_id,
+        "store_id": store_id,
+        "customer_id": user.uid,
+        "rating": int(rating),
+        "comment": (body.get("comment") or "").strip()[:500],
+        "created_at": now_ms(),
+    }
+    db.reference(f"reviews/{store_id}/{review_id}").set(review_data)
+    db.reference(f"orders/{order_id}").update({"has_review": True})
+
+    # Recalculate store avg rating.
+    reviews_node = db.reference(f"reviews/{store_id}").get() or {}
+    all_ratings = [r.get("rating", 0) for r in reviews_node.values() if r.get("rating")]
+    if all_ratings:
+        avg = round(sum(all_ratings) / len(all_ratings), 1)
+        db.reference(f"stores/{store_id}").update({"rating": avg})
+
+    return {"review_id": review_id, "avg_rating": avg if all_ratings else rating}

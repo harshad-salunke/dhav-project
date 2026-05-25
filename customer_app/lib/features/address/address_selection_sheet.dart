@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../core/models/saved_address.dart';
 import '../../core/providers/address_provider.dart';
+import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
 import 'add_address_map_screen.dart';
 
@@ -114,6 +115,7 @@ class _AddressSelectionSheetState extends State<AddressSelectionSheet> {
       lng: _currentLng!,
     );
     context.read<AddressProvider>().selectAddress(addr);
+    context.read<CatalogProvider>().loadCatalog(lat: addr.lat, lng: addr.lng);
     Navigator.pop(context);
     widget.onAddressSelected?.call();
   }
@@ -339,6 +341,9 @@ class _AddressSelectionSheetState extends State<AddressSelectionSheet> {
                         icon: _labelIcon(addr.label),
                         onTap: () {
                           addrProvider.selectAddress(addr);
+                          context
+                              .read<CatalogProvider>()
+                              .loadCatalog(lat: addr.lat, lng: addr.lng);
                           Navigator.pop(context);
                           widget.onAddressSelected?.call();
                         },

@@ -106,6 +106,13 @@ Future<void> main() async {
 
   fcmService.onNativePendingOrderAvailable(consumeAndNavigateNative);
 
+  // FAST PATH: if the activity was force-launched by DhavMessagingService
+  // because an order arrived, pull the order_id now BEFORE building any UI
+  // so we can skip the splash screen entirely and build the navigator stack
+  // as [Dashboard, IncomingOrderScreen]. That way: reject pops → dashboard,
+  // back-button → dashboard, and there is no splash flash.
+  final coldLaunchOrder = await fcmService.consumePendingNativeOrder();
+
   runApp(
     MultiProvider(
       providers: [
@@ -117,13 +124,19 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => EarningsProvider()),
         ChangeNotifierProvider(create: (_) => DeliveryProvider()),
       ],
-      child: const DhavStoreApp(),
+      child: DhavStoreApp(coldLaunchOrder: coldLaunchOrder),
     ),
   );
 }
 
 class DhavStoreApp extends StatefulWidget {
-  const DhavStoreApp({super.key});
+  /// If non-null, the activity was force-launched from
+  /// DhavMessagingService.kt because an order arrived. We use this to skip
+  /// the splash screen and build the navigator stack as
+  /// [Dashboard, IncomingOrderScreen] so reject/back goes to dashboard.
+  final Map<String, String?>? coldLaunchOrder;
+
+  const DhavStoreApp({super.key, this.coldLaunchOrder});
 
   @override
   State<DhavStoreApp> createState() => _DhavStoreAppState();
@@ -185,6 +198,9 @@ class _DhavStoreAppState extends State<DhavStoreApp>
       ),
     );
 
+    final cold = widget.coldLaunchOrder;
+    final hasColdOrder = cold != null && cold['order_id'] != null;
+
     return MaterialApp(
       navigatorKey: navigatorKey,
       title: 'DHAV Store Partner',
@@ -193,6 +209,42 @@ class _DhavStoreAppState extends State<DhavStoreApp>
       themeMode: themeProvider.themeMode,
       debugShowCheckedModeBanner: false,
       initialRoute: AppRoutes.splash,
+      // When force-launched by an FCM order, build the navigator stack as
+      // [Dashboard, IncomingOrderScreen] directly — skipping splash so the
+      // popup appears instantly, and so reject/back lands on the dashboard
+      // instead of a black screen with nothing underneath.
+      onGenerateInitialRoutes: hasColdOrder
+          ? (initialRouteName) {
+              final orderId = cold['order_id']!;
+              final isDelivery = cold['type'] == 'delivery_assigned';
+              // ONLY the popup goes on the stack. Reject/back will call
+              // SystemNavigator.pop() and the user returns to whatever they
+              // were doing (WhatsApp / home / lock screen) — exactly like
+              // declining a phone call.
+              final popup = isDelivery
+                  ? PageRouteBuilder(
+                      settings: RouteSettings(
+                        name: AppRoutes.deliveryIncomingAssignment,
+                        arguments: orderId,
+                      ),
+                      pageBuilder: (_, __, ___) =>
+                          DeliveryIncomingAssignmentScreen(orderId: orderId),
+                      transitionsBuilder: (_, anim, __, child) =>
+                          FadeTransition(opacity: anim, child: child),
+                    )
+                  : PageRouteBuilder(
+                      settings: RouteSettings(
+                        name: AppRoutes.incomingOrder,
+                        arguments: orderId,
+                      ),
+                      pageBuilder: (_, __, ___) =>
+                          IncomingOrderScreen(orderId: orderId),
+                      transitionsBuilder: (_, anim, __, child) =>
+                          FadeTransition(opacity: anim, child: child),
+                    );
+              return [popup];
+            }
+          : null,
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case AppRoutes.splash:

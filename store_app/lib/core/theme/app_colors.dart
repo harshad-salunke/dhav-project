@@ -7,9 +7,9 @@ class AppColors {
   static const Color surface = Color(0xFFFFFFFF);
   static const Color surfaceGrey = Color(0xFFF4F5F7);
 
-  static const Color primary = Color(0xFFF97316);
-  static const Color primaryDark = Color(0xFFCC5500);
-  static const Color primaryLight = Color(0xFFFFE0CC);
+  static const Color primary = Color(0xFF00897B);
+  static const Color primaryDark = Color(0xFF00695C);
+  static const Color primaryLight = Color(0xFFE0F2F1);
 
   static const Color green = Color(0xFF22C55E);
   static const Color greenDark = Color(0xFF16A34A);
@@ -26,5 +26,5 @@ class AppColors {
 
   static const Color divider = Color(0xFF2E3654);
   static const Color border = Color(0xFFE2E8F0);
-  static const Color orangeBorder = Color(0xFFF97316);
+  static const Color orangeBorder = Color(0xFF00897B);
 }
