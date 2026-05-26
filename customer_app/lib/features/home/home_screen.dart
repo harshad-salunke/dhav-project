@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../core/models/catalog_item.dart';
 import '../../core/utils/lottie_utils.dart';
+import '../../core/models/saved_address.dart';
 import '../../core/providers/address_provider.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
@@ -57,20 +58,49 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final catalog = context.read<CatalogProvider>();
-      if (catalog.loadedOnce && catalog.hasLocation) {
-        // Reuse cached location/catalog — no GPS lookup, no API call.
+      final addrProvider = context.read<AddressProvider>();
+
+      // Load saved addresses first — we need to know if the user has a default
+      // address before deciding how to load nearby stores (saved address takes
+      // priority over GPS, exactly like Swiggy / Blinkit).
+      await addrProvider.loadAddresses();
+      if (!mounted) return;
+
+      final selected = addrProvider.selected;
+
+      if (selected != null) {
+        // User has a saved address → use its coordinates, not GPS.
+        final cachedLat = catalog.userLat;
+        final cachedLng = catalog.userLng;
+        final alreadyAtThisAddress = catalog.loadedOnce &&
+            cachedLat != null &&
+            cachedLng != null &&
+            (selected.lat - cachedLat).abs() < 0.0005 &&
+            (selected.lng - cachedLng).abs() < 0.0005;
+
+        if (alreadyAtThisAddress) {
+          setState(() {
+            _areaName = catalog.areaName ?? selected.area;
+            _locating = false;
+          });
+        } else {
+          _loadFromAddress(selected);
+        }
+      } else if (catalog.loadedOnce && catalog.hasLocation) {
+        // No saved address but we have a GPS-based catalog cached.
         setState(() {
           _areaName = catalog.areaName ?? 'Pune';
           _locating = false;
         });
       } else {
+        // No saved address, no cache — fall back to GPS detection.
         _detectLocation();
       }
+
       context.read<OrderProvider>().loadHistory();
-      context.read<AddressProvider>().loadAddresses();
     });
 
     _shimmerCtrl = AnimationController(
@@ -112,6 +142,17 @@ class _HomeScreenState extends State<HomeScreen>
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeInOut,
     );
+  }
+
+  void _loadFromAddress(SavedAddress addr, {bool force = false}) {
+    if (!mounted) return;
+    setState(() {
+      _areaName = addr.area.isNotEmpty ? addr.area : addr.city;
+      _locating = false;
+    });
+    final catalog = context.read<CatalogProvider>();
+    catalog.setAreaName(addr.displayTitle);
+    catalog.loadCatalog(lat: addr.lat, lng: addr.lng, force: force);
   }
 
   Future<void> _detectLocation({bool force = false}) async {
@@ -235,7 +276,15 @@ class _HomeScreenState extends State<HomeScreen>
                   // ── DHAV tab ──────────────────────────────────────────
                   RefreshIndicator(
                     color: AppColors.primary,
-                    onRefresh: () => _detectLocation(force: true),
+                    onRefresh: () async {
+                      final selected =
+                          context.read<AddressProvider>().selected;
+                      if (selected != null) {
+                        _loadFromAddress(selected, force: true);
+                      } else {
+                        await _detectLocation(force: true);
+                      }
+                    },
                     child: CustomScrollView(
                       slivers: [
                         const SliverToBoxAdapter(child: HeroBanner()),
@@ -993,7 +1042,14 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 16),
             GestureDetector(
-              onTap: () => _detectLocation(force: true),
+              onTap: () {
+                final selected = context.read<AddressProvider>().selected;
+                if (selected != null) {
+                  _loadFromAddress(selected, force: true);
+                } else {
+                  _detectLocation(force: true);
+                }
+              },
               child: Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 24, vertical: 10),

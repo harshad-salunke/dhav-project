@@ -2,12 +2,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/services/first_launch_service.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/utils/lottie_utils.dart';
+import '../../core/widgets/dhav_pune_scene.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -30,11 +29,7 @@ class _SplashScreenState extends State<SplashScreen>
   // Stage 3 — DHAV letters
   late final AnimationController _lettersCtrl;
 
-  // Stage 4 — scooter track
-  late final AnimationController _scooterCtrl;
-  late final Animation<double> _scooterX;
-
-  // Stage 5 — tagline + badge
+  // Stage 4 — tagline + badge
   late final AnimationController _taglineCtrl;
   late final Animation<double> _taglineFade;
   late final Animation<Offset> _taglineSlide;
@@ -63,11 +58,6 @@ class _SplashScreenState extends State<SplashScreen>
 
     _lettersCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 900));
-
-    _scooterCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1400));
-    _scooterX = Tween<double>(begin: -0.25, end: 1.25).animate(
-        CurvedAnimation(parent: _scooterCtrl, curve: Curves.easeInOut));
 
     _taglineCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 650));
@@ -98,8 +88,6 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 180));
     _lettersCtrl.forward();
     await Future.delayed(const Duration(milliseconds: 260));
-    _scooterCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 220));
     _taglineCtrl.forward();
     _bootstrap();
   }
@@ -128,7 +116,6 @@ class _SplashScreenState extends State<SplashScreen>
     _bgCtrl.dispose();
     _logoCtrl.dispose();
     _lettersCtrl.dispose();
-    _scooterCtrl.dispose();
     _taglineCtrl.dispose();
     _floatCtrl.dispose();
     super.dispose();
@@ -140,49 +127,65 @@ class _SplashScreenState extends State<SplashScreen>
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: AppColors.primaryDark,
-        body: AnimatedBuilder(
-          animation: Listenable.merge([
-            _bgCtrl,
-            _logoCtrl,
-            _lettersCtrl,
-            _scooterCtrl,
-            _taglineCtrl,
-            _floatCtrl,
-          ]),
-          builder: (context, _) => Stack(
-            children: [
-              // Radial burst background
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _RadialBurstPainter(progress: _bgScale.value),
-                ),
-              ),
+        backgroundColor: const Color(0xFF00251A),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // ── 1. Pune scene — full screen background ──
+            DhavPuneScene(
+              borderRadius: 0,
+              tealSky: true,
+            ),
 
-              // Floating kirana items (ambient)
-              _buildFloatingItems(size),
-
-              // Main content
-              SafeArea(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Spacer(flex: 3),
-                    _buildLogo(),
-                    const SizedBox(height: 28),
-                    _buildDhavLetters(),
-                    const SizedBox(height: 6),
-                    _buildScooterTrack(size),
-                    const SizedBox(height: 20),
-                    _buildTagline(),
-                    const Spacer(flex: 3),
-                    _buildBottomBadge(),
-                    const SizedBox(height: 44),
+            // ── 2. Gradient overlay — dark teal top → transparent ──
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0.0, 0.42, 0.65, 1.0],
+                  colors: [
+                    const Color(0xFF00251A),
+                    const Color(0xFF004D40).withValues(alpha: 0.94),
+                    const Color(0xFF004D40).withValues(alpha: 0.12),
+                    Colors.transparent,
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+
+            // ── 3. Animated branding layer ──
+            AnimatedBuilder(
+              animation: Listenable.merge([
+                _bgCtrl,
+                _logoCtrl,
+                _lettersCtrl,
+                _taglineCtrl,
+                _floatCtrl,
+              ]),
+              builder: (context, _) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildFloatingItems(size),
+                  SafeArea(
+                    child: Column(
+                      children: [
+                        const Spacer(flex: 3),
+                        _buildLogo(),
+                        const SizedBox(height: 22),
+                        _buildDhavLetters(),
+                        const SizedBox(height: 10),
+                        _buildTagline(),
+                        const Spacer(flex: 5),
+                        _buildBottomBadge(),
+                        const SizedBox(height: 36),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -301,49 +304,6 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildScooterTrack(Size size) {
-    return SizedBox(
-      height: 56,
-      width: size.width,
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
-        children: [
-          // Dashed road line
-          Positioned(
-            left: 40,
-            right: 40,
-            top: 48,
-            child: Row(
-              children: List.generate(
-                8,
-                (i) => Expanded(
-                  child: Container(
-                    height: 1.5,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    color: Colors.white.withValues(alpha: 0.20),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Lottie delivery animation moving left → right
-          Align(
-            alignment: Alignment(_scooterX.value * 2 - 1, 0),
-            child: SizedBox(
-              width: 90,
-              height: 56,
-              child: Lottie.asset(
-                'assets/images/delivery_riding.lottie',
-                decoder: decodeDotLottie,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildTagline() {
     return SlideTransition(
       position: _taglineSlide,
@@ -352,7 +312,7 @@ class _SplashScreenState extends State<SplashScreen>
         child: Text(
           'Apni Dukaan, Apke Darwaze Tak',
           style: GoogleFonts.inter(
-            color: Colors.white.withOpacity(0.88),
+            color: Colors.white.withValues(alpha: 0.88),
             fontSize: 15,
             fontWeight: FontWeight.w400,
             letterSpacing: 0.4,
@@ -372,10 +332,10 @@ class _SplashScreenState extends State<SplashScreen>
           padding:
               const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.14),
+            color: Colors.white.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
-                color: Colors.white.withOpacity(0.28), width: 1),
+                color: Colors.white.withValues(alpha: 0.28), width: 1),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -400,32 +360,3 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-// ── Background radial burst ───────────────────────────────────────────────────
-
-class _RadialBurstPainter extends CustomPainter {
-  final double progress;
-  const _RadialBurstPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height * 0.40);
-    final maxRadius = size.longestSide * 1.2;
-    final paint = Paint()
-      ..shader = RadialGradient(
-        center: Alignment.center,
-        colors: const [
-          Color(0xFF80CBC4),
-          Color(0xFF26A69A),
-          Color(0xFF00897B),
-          Color(0xFF00695C),
-        ],
-        stops: const [0.0, 0.25, 0.6, 1.0],
-      ).createShader(
-          Rect.fromCircle(center: center, radius: maxRadius));
-    canvas.drawCircle(center, maxRadius * progress, paint);
-  }
-
-  @override
-  bool shouldRepaint(_RadialBurstPainter old) =>
-      old.progress != progress;
-}

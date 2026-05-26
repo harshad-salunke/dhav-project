@@ -66,6 +66,9 @@ async def register_store(
 ):
     """Self-onboarding: any authenticated user can register a store for themselves.
     The store starts unverified — admin must verify before it can go live."""
+    if user.role == "delivery":
+        raise HTTPException(status_code=403, detail="Delivery partners cannot register a store")
+
     user_node = db.reference(f"users/{user.uid}").get() or {}
     if user_node.get("store_id"):
         raise HTTPException(status_code=409, detail="User already owns a store")

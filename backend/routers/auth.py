@@ -38,15 +38,30 @@ async def verify_token(decoded: dict = Depends(_verify_firebase_token)):
     user_data = user_ref.get()
 
     if user_data is None:
-        # First login — create user record with default role
+        # First login — check if this email belongs to a pre-registered delivery boy.
+        # Store owners add delivery boys by email before they ever log in, so we
+        # need to promote them to 'delivery' role here rather than defaulting to 'customer'.
+        role_on_create = "customer"
+        store_id_on_create = None
+        all_boys = db.reference("delivery_boys").get() or {}
+        for boy_id, boy in all_boys.items():
+            if boy.get("google_account_email", "").lower() == email.lower():
+                role_on_create = "delivery"
+                store_id_on_create = boy.get("store_id")
+                # Link the Firebase UID back to the delivery_boys record
+                db.reference(f"delivery_boys/{boy_id}").update({"uid": uid})
+                break
+
         user_data = {
             "uid": uid,
             "email": email,
             "display_name": decoded.get("name", ""),
-            "role": "customer",
+            "role": role_on_create,
             "created_at": now_ms(),
             "is_active": True,
         }
+        if store_id_on_create:
+            user_data["store_id"] = store_id_on_create
         user_ref.set(user_data)
 
     role = user_data.get("role", "customer")
