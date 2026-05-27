@@ -15,4 +15,7 @@ class AppRoutes {
   static const profile = '/profile';
   static const notifications = '/notifications';
   static const orderDelivered = '/order-delivered';
+  static const savedAddresses = '/saved-addresses';
+  static const helpSupport = '/help-support';
+  static const itemDetail = '/item-detail';
 }

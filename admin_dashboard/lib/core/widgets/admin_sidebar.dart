@@ -16,6 +16,7 @@ class AdminSidebar extends StatelessWidget {
     _NavItem(icon: Icons.account_balance_wallet_rounded, label: 'Settlements', route: AppRoutes.settlements),
     _NavItem(icon: Icons.inventory_2_rounded, label: 'Catalog', route: AppRoutes.catalog),
     _NavItem(icon: Icons.radar_rounded, label: 'Coverage', route: AppRoutes.coverage),
+    _NavItem(icon: Icons.campaign_rounded, label: 'Notifications', route: AppRoutes.notifications),
   ];
 
   @override

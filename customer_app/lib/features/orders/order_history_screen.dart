@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../../core/constants/app_routes.dart';
 import '../../core/models/order.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 import 'rate_order_sheet.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
@@ -67,8 +69,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen>
         ),
       ),
       body: orders.loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary))
+          ? const OrderHistoryShimmer()
           : TabBarView(
               controller: _tabs,
               children: [
@@ -184,8 +185,15 @@ class _OrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isActive = !['delivered', 'failed', 'cancelled'].contains(order.status);
     return GestureDetector(
-      onTap: () => Navigator.pushNamed(context, '/order-tracking',
-          arguments: {'order_id': order.orderId}),
+      onTap: () {
+        if (isActive) {
+          Navigator.pushNamed(context, AppRoutes.orderTracking,
+              arguments: {'order_id': order.orderId});
+        } else {
+          Navigator.pushNamed(context, AppRoutes.orderDetail,
+              arguments: order);
+        }
+      },
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(

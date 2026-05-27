@@ -151,8 +151,12 @@ async def place_direct_order(
     db.reference(f"orders/{order_id}").set(order_data)
 
     fcm_token = store_node.get("fcm_token")
+    owner_uid = store_node.get("owner_uid", "")
     if fcm_token:
-        send_new_order_to_stores([fcm_token], order_id, len(body.items), total_product)
+        send_new_order_to_stores(
+            [fcm_token], order_id, len(body.items), total_product,
+            owner_uids=[owner_uid] if owner_uid else None,
+        )
 
     return {"order_id": order_id, "status": "broadcasting", "store_id": body.store_id}
 
@@ -203,7 +207,10 @@ async def accept_order(
 
     # Notify customer
     customer_token = db.reference(f"users/{order['customer_id']}/fcm_token").get() or ""
-    send_order_accepted_to_customer(customer_token, order_id, store_node.get("shop_name", "Store"))
+    send_order_accepted_to_customer(
+        customer_token, order_id, store_node.get("shop_name", "Store"),
+        customer_uid=order["customer_id"],
+    )
 
     # Notify other stores that order is taken
     remaining = [sid for sid in order.get("broadcast_store_ids", []) if sid != store_id]
@@ -300,7 +307,7 @@ async def dispatch_order(
     })
 
     customer_token = db.reference(f"users/{order['customer_id']}/fcm_token").get() or ""
-    send_order_out_for_delivery(customer_token, order_id)
+    send_order_out_for_delivery(customer_token, order_id, customer_uid=order["customer_id"])
     return {"status": "out_for_delivery", "ws_channel_id": ws_channel_id}
 
 
@@ -326,7 +333,7 @@ async def mark_delivered(
     store_ref.update({"total_orders_accepted": (store_ref.get() or {}).get("total_orders_accepted", 0) + 1})
 
     customer_token = db.reference(f"users/{order['customer_id']}/fcm_token").get() or ""
-    send_order_delivered(customer_token, order_id)
+    send_order_delivered(customer_token, order_id, customer_uid=order["customer_id"])
     return {"status": "delivered"}
 
 

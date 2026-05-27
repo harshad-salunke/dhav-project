@@ -5,6 +5,7 @@ import '../../core/models/saved_address.dart';
 import '../../core/providers/address_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 import 'add_address_map_screen.dart';
 import 'add_address_detail_screen.dart';
 
@@ -34,7 +35,7 @@ class SavedAddressesScreen extends StatelessWidget {
             style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
       ),
       body: addrProvider.loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const CartShimmer()   // address list has same card-list layout
           : addrProvider.addresses.isEmpty
               ? _buildEmpty()
               : ListView.separated(

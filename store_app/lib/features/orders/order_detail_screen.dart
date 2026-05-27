@@ -7,6 +7,7 @@ import '../../core/models/order.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final String? orderId;
@@ -67,7 +68,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const OrderDetailShimmer()
           : _error != null
               ? Center(
                   child: Text(_error!,

@@ -56,14 +56,15 @@ def process_store_failure(store_id: str, order_id: str, reason: str) -> None:
         if loc.get("lat") and loc.get("lng"):
             remove_store_from_geofence_index(store_id, loc["lat"], loc["lng"])
 
-    # Send FCM
+    # Send FCM + persist notification
     fcm_token = store.get("fcm_token", "")
+    owner_uid = store.get("owner_uid", "") or ""
     if action == "warning":
-        send_strike_warning(fcm_token, total_strikes, order_id)
+        send_strike_warning(fcm_token, total_strikes, order_id, owner_uid=owner_uid or None)
     elif action == "suspended_7_days":
-        send_store_suspended(fcm_token, settings.suspension_days)
+        send_store_suspended(fcm_token, settings.suspension_days, owner_uid=owner_uid or None)
     elif action == "permanent_ban":
-        send_store_suspended(fcm_token, 0)
+        send_store_suspended(fcm_token, 0, owner_uid=owner_uid or None)
 
 
 def lift_expired_suspensions() -> int:

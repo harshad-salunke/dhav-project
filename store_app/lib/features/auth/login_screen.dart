@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/providers/auth_provider.dart';
@@ -177,7 +178,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                     const SizedBox(height: 20),
                     GestureDetector(
-                      onTap: () {},
+                      onTap: () async {
+                        final uri = Uri.parse('tel:+919876543210');
+                        if (await canLaunchUrl(uri)) {
+                          launchUrl(uri);
+                        }
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                         decoration: BoxDecoration(color: AppColors.surfaceGrey, borderRadius: BorderRadius.circular(24)),

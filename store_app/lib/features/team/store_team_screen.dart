@@ -6,6 +6,7 @@ import '../../core/models/store.dart';
 import '../../core/providers/store_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class StoreTeamScreen extends StatefulWidget {
   const StoreTeamScreen({super.key});
@@ -134,7 +135,7 @@ class _StoreTeamScreenState extends State<StoreTeamScreen> {
             ),
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const TeamListShimmer()
                   : boys.isEmpty
                       ? ListView(
                           children: [

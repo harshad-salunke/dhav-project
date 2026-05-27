@@ -102,16 +102,26 @@ class Store {
         fcmToken: j['fcm_token'] as String?,
       );
 
-  Store copyWith({bool? isOpen, List<String>? availableItemIds}) => Store(
+  Store copyWith({
+    bool? isOpen,
+    List<String>? availableItemIds,
+    String? shopName,
+    String? ownerName,
+    String? phone,
+    String? address,
+    StoreLocation? location,
+    OperatingHours? operatingHours,
+  }) =>
+      Store(
         storeId: storeId,
         ownerUid: ownerUid,
-        ownerName: ownerName,
-        shopName: shopName,
-        phone: phone,
+        ownerName: ownerName ?? this.ownerName,
+        shopName: shopName ?? this.shopName,
+        phone: phone ?? this.phone,
         email: email,
         shopPhotoUrl: shopPhotoUrl,
-        address: address,
-        location: location,
+        address: address ?? this.address,
+        location: location ?? this.location,
         isOpen: isOpen ?? this.isOpen,
         isActive: isActive,
         isVerified: isVerified,
@@ -120,7 +130,7 @@ class Store {
         strikeCount: strikeCount,
         totalStrikes: totalStrikes,
         availableItemIds: availableItemIds ?? this.availableItemIds,
-        operatingHours: operatingHours,
+        operatingHours: operatingHours ?? this.operatingHours,
         totalOrdersAccepted: totalOrdersAccepted,
         totalOrdersFailed: totalOrdersFailed,
         rating: rating,

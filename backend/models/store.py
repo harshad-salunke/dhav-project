@@ -85,6 +85,16 @@ class StoreSelfRegisterRequest(BaseModel):
     operating_hours: Optional[OperatingHours] = None
 
 
+class StoreProfileUpdateRequest(BaseModel):
+    shop_name: Optional[str] = None
+    owner_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    operating_hours: Optional[OperatingHours] = None
+
+
 class StoreToggleRequest(BaseModel):
     is_open: bool
 

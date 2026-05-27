@@ -81,6 +81,67 @@ class StoreProvider extends ChangeNotifier {
     await loadDeliveryBoys();
   }
 
+  Future<void> updateProfile({
+    String? shopName,
+    String? ownerName,
+    String? phone,
+    String? address,
+    double? lat,
+    double? lng,
+    String? openTime,
+    String? closeTime,
+  }) async {
+    if (_store == null) return;
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final body = <String, dynamic>{};
+      if (shopName != null) body['shop_name'] = shopName;
+      if (ownerName != null) body['owner_name'] = ownerName;
+      if (phone != null) body['phone'] = phone;
+      if (address != null) body['address'] = address;
+      if (lat != null) body['lat'] = lat;
+      if (lng != null) body['lng'] = lng;
+      if (openTime != null || closeTime != null) {
+        body['operating_hours'] = {
+          'open': openTime ?? _store!.operatingHours?.open ?? '09:00',
+          'close': closeTime ?? _store!.operatingHours?.close ?? '22:00',
+        };
+      }
+
+      await _api.patch('/stores/me/profile', body: body);
+
+      // Optimistic local update so UI reflects changes immediately
+      final newLoc = (lat != null || lng != null)
+          ? StoreLocation(
+              lat: lat ?? _store!.location.lat,
+              lng: lng ?? _store!.location.lng,
+            )
+          : null;
+      final newHours = (openTime != null || closeTime != null)
+          ? OperatingHours(
+              open: openTime ?? _store!.operatingHours?.open ?? '09:00',
+              close: closeTime ?? _store!.operatingHours?.close ?? '22:00',
+            )
+          : null;
+      _store = _store!.copyWith(
+        shopName: shopName,
+        ownerName: ownerName,
+        phone: phone,
+        address: address,
+        location: newLoc,
+        operatingHours: newHours,
+      );
+    } catch (e) {
+      _error = e.toString();
+      rethrow;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> updateInventory(List<String> itemIds) async {
     if (_store == null) return;
     await _api.patch('/stores/me/inventory', body: {

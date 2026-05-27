@@ -1,0 +1,468 @@
+# DHAV Backend — Complete API Reference
+
+> Base URL (Production): `https://<railway-app>.railway.app`  
+> All endpoints require `Authorization: Bearer <Firebase ID Token>` unless marked **Public**
+
+---
+
+## Authentication Header
+```
+Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
+```
+Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken()` in Flutter.
+
+---
+
+## Router: `/auth`
+
+### POST `/auth/verify-token`
+**Purpose:** Verify Firebase token + bootstrap user profile on first login  
+**Auth:** Firebase ID Token (Bearer)  
+**Roles:** Any authenticated Firebase user
+
+**Behavior:**
+- Verifies JWT with Firebase Admin SDK (clock_skew_seconds=60)
+- If user node doesn't exist in RTDB → creates it
+- First-login detection: scans `delivery_boys` for matching `google_account_email` → assigns `delivery` role
+- Returns user's current role
+
+**Response:**
+```json
+{
+  "uid": "abc123",
+  "email": "user@example.com",
+  "display_name": "Ravi Kumar",
+  "role": "customer",
+  "is_active": true
+}
+```
+
+---
+
+## Router: `/customers`
+
+### GET `/customers/me`
+**Roles:** `customer`  
+**Purpose:** Get own profile from Firebase RTDB
+
+### PATCH `/customers/me`
+**Roles:** `customer`  
+**Purpose:** Update profile fields  
+**Allowed fields:** `display_name`, `phone`, `default_address`, `fcm_token`, `language`
+
+### POST `/customers/me/addresses`
+**Roles:** `customer`  
+**Purpose:** Add a saved address  
+**Body:** `{ label, flat_building, area, city, pincode, lat, lng }`
+
+### PATCH `/customers/me/addresses/{index}`
+**Roles:** `customer`  
+**Purpose:** Update an address by array index  
+**Allowed fields:** `label`, `flat_building`, `floor`, `area`, `landmark`, `city`, `pincode`
+
+### DELETE `/customers/me/addresses/{index}`
+**Roles:** `customer`  
+**Purpose:** Remove an address by array index
+
+---
+
+## Router: `/stores`
+
+### POST `/stores`
+**Roles:** `admin`  
+**Purpose:** Admin creates a store for an existing user  
+**Body:**
+```json
+{
+  "owner_uid": "uid123",
+  "owner_name": "Ramesh Patil",
+  "shop_name": "Patil Kirana",
+  "phone": "9876543210",
+  "email": "ramesh@example.com",
+  "address": "FC Road, Pune",
+  "lat": 18.5204,
+  "lng": 73.8567,
+  "operating_hours": { "open": "09:00", "close": "22:00" }
+}
+```
+**Side effects:** Sets user role to `store_owner`, encodes geohash, indexes in geofence
+
+### POST `/stores/register`
+**Roles:** Any authenticated user (not `delivery`)  
+**Purpose:** Store owner self-registers — starts unverified  
+**Body:** Same as above minus `owner_uid` (inferred from token)  
+**Note:** NOT indexed in geofence until admin verifies
+
+### GET `/stores/me`
+**Roles:** `store_owner`  
+**Purpose:** Get own store profile
+
+### PATCH `/stores/me/profile`
+**Roles:** `store_owner`  
+**Purpose:** Update store name, phone, hours, address, or location  
+**Note:** If location changes and store is open → re-indexes geofence
+
+### PATCH `/stores/me/toggle`
+**Roles:** `store_owner`  
+**Purpose:** Open or close the store  
+**Body:** `{ "is_open": true }`  
+**Guards:** Cannot open if suspended or unverified  
+**Side effects:** Adds/removes from geofence_index
+
+### PATCH `/stores/me/fcm-token`
+**Roles:** `store_owner`  
+**Body:** `{ "fcm_token": "..." }`  
+**Purpose:** Save FCM token for push notifications
+
+### PATCH `/stores/me/inventory`
+**Roles:** `store_owner`  
+**Body:** `{ "available_item_ids": ["id1", "id2"] }`  
+**Purpose:** Set which catalog items are available in this store
+
+### GET `/stores/me/orders`
+**Roles:** `store_owner`  
+**Query params:** `status` (filter), `limit` (default 50, max 200)  
+**Purpose:** Get orders accepted by this store
+
+### GET `/stores/me/delivery-boys`
+**Roles:** `store_owner`  
+**Purpose:** List delivery boys belonging to this store
+
+### POST `/stores/me/delivery-boys`
+**Roles:** `store_owner`  
+**Body:** `{ "name": "Suresh", "phone": "9898989898", "google_account_email": "suresh@gmail.com" }`  
+**Note:** `google_account_email` is used to match the delivery boy when they first log in
+
+### DELETE `/stores/me/delivery-boys/{delivery_boy_id}`
+**Roles:** `store_owner`
+
+### POST `/stores/me/custom-items`
+**Roles:** `store_owner`  
+**Purpose:** Request admin to add a new product to catalog  
+**Body:** `{ "name", "name_hindi?", "name_marathi?", "category", "unit", "price", "notes?" }`
+
+### GET `/stores/me/custom-items`
+**Roles:** `store_owner`  
+**Purpose:** List own custom item requests
+
+### GET `/stores/{store_id}`
+**Roles:** Any authenticated user  
+**Purpose:** Get a specific store profile
+
+---
+
+## Router: `/orders`
+
+### POST `/orders`
+**Roles:** `customer`  
+**Purpose:** Place a new order — triggers wave broadcasting  
+**Body:**
+```json
+{
+  "customer_address": {
+    "label": "Home",
+    "flat_building": "A-101",
+    "area": "Kothrud",
+    "city": "Pune",
+    "lat": 18.5204,
+    "lng": 73.8567
+  },
+  "items": [
+    {
+      "item_id": "item123",
+      "item_name": "Tata Salt",
+      "quantity": 2,
+      "unit": "kg",
+      "price_per_unit": 25.0,
+      "total_price": 50.0
+    }
+  ]
+}
+```
+**Response:** `{ "order_id": "...", "status": "broadcasting" }`
+
+### POST `/orders/direct`
+**Roles:** `customer`  
+**Purpose:** Order directly from a specific store (no waves)  
+**Body:** Same as above + `"store_id": "store123"`
+
+### GET `/orders` or GET `/orders/customer/me`
+**Roles:** `customer`  
+**Purpose:** Get own order history (both endpoints return same data)
+
+### GET `/orders/{order_id}`
+**Roles:** Any authenticated user  
+**Purpose:** Get a specific order  
+**Guard:** Customer can only see their own order
+
+### POST `/orders/{order_id}/accept`
+**Roles:** `store_owner`  
+**Purpose:** Accept a broadcasting order (atomic transaction)  
+**Side effects:**  
+- Firebase transaction (race-condition safe)  
+- Delivery fee recalculated with Haversine  
+- FCM to customer: "Order accepted"  
+- FCM to other stores: "Order taken"  
+- `cancel_broadcast()` cancels the asyncio broadcast task
+
+### POST `/orders/{order_id}/reject`
+**Roles:** `store_owner`  
+**Body:** `{ "reason": "out_of_stock" }` (optional)  
+**Purpose:** Record that this store rejected the order
+
+### POST `/orders/{order_id}/assign-delivery-boy`
+**Roles:** `store_owner`  
+**Body:** `{ "delivery_boy_id": "boy123" }`  
+**Purpose:** Assign delivery personnel (must be this store's boy)
+
+### POST `/orders/{order_id}/packed`
+**Roles:** `store_owner`  
+**Purpose:** Mark order as packed (requires status="accepted")
+
+### POST `/orders/{order_id}/dispatched`
+**Roles:** `store_owner`  
+**Purpose:** Mark order as out_for_delivery  
+**Side effects:** Sets `ws_channel_id`, FCM to customer: "Out for delivery"
+
+### POST `/orders/{order_id}/delivered`
+**Roles:** `store_owner` or `delivery`  
+**Purpose:** Mark order as delivered  
+**Side effects:** Closes WS channel, increments store counter, FCM to customer
+
+### POST `/orders/{order_id}/report-failure`
+**Roles:** `store_owner` or `admin`  
+**Purpose:** Report order failure → triggers penalty system
+
+### POST `/orders/{order_id}/review`
+**Roles:** `customer`  
+**Body:** `{ "rating": 4, "comment": "Good service" }`  
+**Purpose:** Submit 1–5 star review for delivered order  
+**Side effects:** Recalculates store average rating
+
+### GET `/orders/delivery/me`
+**Roles:** `delivery`  
+**Purpose:** Get delivery boy's assigned orders
+
+---
+
+## Router: `/catalog`
+
+### GET `/catalog/categories`
+**Auth:** Public  
+**Purpose:** List all active product categories
+
+### GET `/catalog/items`
+**Auth:** Public  
+**Query params:** `category`, `search`, `limit` (default 50)  
+**Note:** Search matches name, name_hindi, name_marathi
+
+### GET `/catalog/stores/nearby`
+**Auth:** Public  
+**Query params:** `lat`, `lng`, `radius_km` (default 5.0, max 20.0)  
+**Purpose:** Find active, verified, non-suspended stores near a coordinate  
+**Returns:** Stores sorted by distance ascending
+
+### GET `/catalog/stores/nearby/all`
+**Auth:** Public  
+**Query params:** `lat`, `lng`, `radius_km`  
+**Purpose:** All stores including inactive/suspended (for map display)
+
+### GET `/catalog/stores/{store_id}`
+**Auth:** Public  
+**Purpose:** Get store profile + available items
+
+### GET `/catalog/items/nearby`
+**Auth:** Public  
+**Query params:** `lat`, `lng`, `radius_km`, `category`  
+**Purpose:** Items available across all nearby stores
+
+### POST `/catalog/items`
+**Roles:** `admin`  
+**Purpose:** Add item to master catalog
+
+### PATCH `/catalog/items/{item_id}`
+**Roles:** `admin`
+
+### DELETE `/catalog/items/{item_id}`
+**Roles:** `admin`  
+**Purpose:** Soft-delete (sets is_active=False)
+
+---
+
+## Router: `/admin`
+
+### Store Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/stores` | List all stores (filters: is_active, is_suspended) |
+| GET | `/admin/stores/{id}` | Get single store |
+| POST | `/admin/stores/onboard` | Create store + Firebase Auth user |
+| PUT | `/admin/stores/{id}` | Update any store field |
+| DELETE | `/admin/stores/{id}` | Soft-delete (deactivate + remove from geofence) |
+| PATCH | `/admin/stores/{id}/verify` | Verify store → enables it to go live |
+| PATCH | `/admin/stores/{id}/suspend` | Suspend store for N days |
+| PATCH | `/admin/stores/{id}/unsuspend` | Lift suspension, reset strike_count |
+| GET | `/admin/stores/{id}/inventory` | View inventory with catalog items |
+| PUT | `/admin/stores/{id}/inventory` | Update store inventory |
+| GET | `/admin/stores/{id}/reviews` | View reviews + avg_rating |
+| DELETE | `/admin/stores/{id}/reviews/{rev_id}` | Delete a review |
+| GET | `/admin/stores/{id}/stats` | Order stats + revenue |
+
+### Order Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/orders` | List all orders (filter by status, limit) |
+| POST | `/admin/orders/{id}/force-fail` | Force-fail + issue strike to store |
+
+### Customer Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/customers` | List all customers |
+| GET | `/admin/customers/{uid}` | Get customer profile |
+| GET | `/admin/customers/{uid}/orders` | Customer's order history + stats |
+
+### Catalog Management (Admin)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/catalog/items` | All items including inactive (with search/filter) |
+| POST | `/admin/catalog/items` | Create catalog item |
+| PATCH | `/admin/catalog/items/{id}` | Update item |
+| DELETE | `/admin/catalog/items/{id}` | Deactivate (soft) or permanent delete |
+
+### Analytics
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/analytics/summary` | Platform-wide stats: stores, orders, fees |
+
+### Settlements
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/settlements` | List settlements (filter by status) |
+
+### Admin Notifications
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/admin/notifications/broadcast` | Send push + persist to target audience |
+| GET | `/admin/notifications/history` | View notification history |
+
+**Broadcast body:**
+```json
+{
+  "target": "all_customers",
+  "title": "Summer Sale!",
+  "message": "Get 20% off on all orders today",
+  "type": "offer"
+}
+```
+**target options:** `all_customers` | `all_stores` | `specific_store` | `specific_customer`
+
+---
+
+## Router: `/settlements`
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/settlements/me` | Store owner views own settlements |
+| GET | `/settlements/{id}` | Get specific settlement |
+| POST | `/settlements/{id}/pay` | Record a payment against settlement |
+
+---
+
+## Router: `/delivery`
+
+### PATCH `/delivery/me/fcm-token`
+**Roles:** `delivery`  
+**Body:** `{ "fcm_token": "..." }`  
+**Purpose:** Update FCM token for delivery boy
+
+### GET `/delivery/me/profile`
+**Roles:** `delivery`  
+**Purpose:** Get own profile including store info
+
+---
+
+## Router: `/notifications`
+
+### GET `/notifications/me`
+**Roles:** Any authenticated user  
+**Query:** `limit` (default 100)  
+**Purpose:** Get own notifications, newest first  
+**Response:**
+```json
+{
+  "notifications": [...],
+  "total": 45,
+  "unread": 3
+}
+```
+
+### PATCH `/notifications/{notif_id}/read`
+**Roles:** Any authenticated user  
+**Purpose:** Mark single notification as read
+
+### PATCH `/notifications/me/read-all`
+**Roles:** Any authenticated user  
+**Purpose:** Mark all notifications as read
+
+### DELETE `/notifications/me`
+**Roles:** Any authenticated user  
+**Purpose:** Clear all notifications
+
+### DELETE `/notifications/{notif_id}`
+**Roles:** Any authenticated user  
+**Purpose:** Delete a single notification
+
+---
+
+## WebSocket: `/ws/order/{order_id}/location`
+
+**Purpose:** Real-time delivery location streaming  
+**Protocol:** WebSocket over HTTPS (wss://)
+
+**Connection flow:**
+```
+1. Connect to wss://backend/ws/order/{order_id}/location
+2. Send JSON: { "token": "<Firebase ID Token>", "role": "delivery_boy" | "customer" }
+3. Receive: { "status": "connected", "role": "..." }
+
+Delivery boy then sends every 3s:
+{ "lat": 18.5204, "lng": 73.8567, "ts": 1716800000000 }
+
+Customer receives:
+{ "lat": 18.5204, "lng": 73.8567, "ts": 1716800000000 }
+```
+
+**Error codes:**
+- `4000`: Bad init message
+- `4001`: Invalid/missing token
+- `4002`: Order not in out_for_delivery status
+- `4003`: Forbidden (wrong user for this order)
+- `4004`: Invalid role string
+
+---
+
+## GET `/health`
+**Auth:** Public  
+**Purpose:** Health check  
+**Response:** `{ "status": "ok", "service": "dhav-backend", "version": "0.2.0" }`
+
+---
+
+## HTTP Error Reference
+
+| Code | Meaning |
+|------|---------|
+| 400 | Bad request (e.g., store inactive) |
+| 401 | Missing/invalid/expired token |
+| 403 | Wrong role, account inactive, store suspended |
+| 404 | Resource not found |
+| 409 | Conflict (order already accepted, already reviewed, etc.) |
+| 422 | Validation error (missing required fields) |
+| 500 | Internal server error (Firebase failures, etc.) |

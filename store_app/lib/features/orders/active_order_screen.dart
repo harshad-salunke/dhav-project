@@ -9,6 +9,7 @@ import '../../core/providers/order_provider.dart';
 import '../../core/providers/store_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 /// Maps backend order.status → step index in the local stepper.
 const Map<String, int> _statusToStep = {
@@ -160,7 +161,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
                 fontSize: 18, fontWeight: FontWeight.w700, color: c.textPrimary)),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const OrderDetailShimmer()
           : _order == null
               ? _emptyView(c)
               : _buildBody(c, _order!),

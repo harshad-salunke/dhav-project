@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
+import '../providers/notification_provider.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -11,6 +12,10 @@ class FcmService {
   final _messaging = FirebaseMessaging.instance;
   final _localNotifications = FlutterLocalNotificationsPlugin();
   final GlobalKey<NavigatorState> navigatorKey;
+
+  /// Injected after the provider tree is ready. Used to accumulate
+  /// in-app notification history shown in the Notifications screen.
+  NotificationProvider? notificationProvider;
 
   Function(String orderId)? onOrderStatusUpdate;
 
@@ -59,11 +64,14 @@ class FcmService {
   void _handleForegroundMessage(RemoteMessage message) {
     final data = message.data;
     final orderId = data['order_id'] as String?;
+    final title = message.notification?.title ?? 'DHAV Order Update';
+    final body = message.notification?.body ?? '';
 
+    // Show OS notification
     _localNotifications.show(
       message.hashCode,
-      message.notification?.title ?? 'DHAV Order Update',
-      message.notification?.body ?? '',
+      title,
+      body,
       NotificationDetails(
         android: AndroidNotificationDetails(
           _channel.id,
@@ -77,22 +85,38 @@ class FcmService {
       payload: orderId,
     );
 
+    // Accumulate in-app notification history
+    notificationProvider?.add(
+      title: title,
+      body: body,
+      orderId: orderId,
+      type: NotificationProvider.typeFromData(data),
+    );
+
     if (orderId != null) onOrderStatusUpdate?.call(orderId);
   }
 
   void _handleMessageTap(RemoteMessage message) {
     final orderId = message.data['order_id'] as String?;
     if (orderId != null) {
-      navigatorKey.currentState?.pushNamed('/order-tracking',
-          arguments: {'order_id': orderId});
+      navigatorKey.currentState?.pushNamed(
+        '/order-tracking',
+        arguments: {'order_id': orderId},
+      );
     }
   }
 
   void _onNotificationTap(NotificationResponse response) {
     final orderId = response.payload;
     if (orderId != null && orderId.isNotEmpty) {
-      navigatorKey.currentState?.pushNamed('/order-tracking',
-          arguments: {'order_id': orderId});
+      navigatorKey.currentState?.pushNamed(
+        '/order-tracking',
+        arguments: {'order_id': orderId},
+      );
     }
+  }
+
+  void dispose() {
+    // FirebaseMessaging listeners are persistent; nothing to dispose here.
   }
 }

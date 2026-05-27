@@ -9,6 +9,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/delivery_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class DeliveryHomeScreen extends StatefulWidget {
   const DeliveryHomeScreen({super.key});
@@ -48,6 +49,14 @@ class _DeliveryHomeScreenState extends State<DeliveryHomeScreen> {
             o.status == 'delivered' &&
             (o.deliveredAt ?? 0) > _startOfDayMs())
         .toList();
+
+    // Show shimmer skeleton on first load before any data arrives
+    if (delivery.loading && delivery.orders.isEmpty) {
+      return Scaffold(
+        backgroundColor: c.scaffold,
+        body: SafeArea(child: const DeliveryHomeShimmer()),
+      );
+    }
 
     return Scaffold(
       backgroundColor: c.scaffold,

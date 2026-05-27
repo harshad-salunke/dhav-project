@@ -5,6 +5,7 @@ import '../../core/models/catalog_item.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 import '../catalog/item_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -135,7 +136,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
             // Results list
             Expanded(
-              child: results.isEmpty && _query.isNotEmpty
+              child: catalog.loading && results.isEmpty
+                  ? const SearchResultsShimmer()
+                  : results.isEmpty && _query.isNotEmpty
                   ? _buildEmptyState()
                   : ListView.separated(
                       padding: const EdgeInsets.only(bottom: 100),

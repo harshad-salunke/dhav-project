@@ -66,8 +66,14 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateUser(AppUser updated) {
-    _user = updated;
-    notifyListeners();
+  /// Sends a password-reset email via Firebase Auth.
+  /// Returns null on success, or an error string on failure.
+  Future<String?> sendPasswordReset(String email) async {
+    try {
+      await _service.sendPasswordReset(email.trim());
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 }

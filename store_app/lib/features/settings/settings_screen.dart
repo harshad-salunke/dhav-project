@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
 import '../../core/providers/theme_provider.dart';
@@ -138,7 +139,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: 'Privacy Policy',
                 c: c,
                 trailing: Icon(Icons.open_in_new_rounded, color: c.textHint, size: 18),
-                onTap: () {},
+                onTap: () async {
+                  final uri = Uri.parse('https://dhav.in/privacy');
+                  if (await canLaunchUrl(uri)) {
+                    launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
               ),
               _Divider(c: c),
               _SettingRow(
@@ -146,7 +152,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: 'Terms of Service',
                 c: c,
                 trailing: Icon(Icons.open_in_new_rounded, color: c.textHint, size: 18),
-                onTap: () {},
+                onTap: () async {
+                  final uri = Uri.parse('https://dhav.in/terms');
+                  if (await canLaunchUrl(uri)) {
+                    launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
               ),
             ]),
             const SizedBox(height: 32),

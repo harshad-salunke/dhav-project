@@ -8,6 +8,7 @@ import '../../core/models/order.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class OrderListScreen extends StatefulWidget {
   const OrderListScreen({super.key});
@@ -37,7 +38,9 @@ class _OrderListScreenState extends State<OrderListScreen>
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final orders = context.watch<OrderProvider>().orders;
+    final orderProv = context.watch<OrderProvider>();
+    final orders = orderProv.orders;
+    final isLoading = orderProv.loading && orders.isEmpty;
     final active = orders.where((o) => o.isActive).toList();
     final completed = orders.where((o) => o.isTerminal).toList();
 
@@ -60,20 +63,22 @@ class _OrderListScreenState extends State<OrderListScreen>
           unselectedLabelColor: AppColors.textGrey,
           labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
           tabs: [
-            Tab(text: 'All (${orders.length})'),
-            Tab(text: 'Active (${active.length})'),
-            Tab(text: 'Completed (${completed.length})'),
+            Tab(text: isLoading ? 'All' : 'All (${orders.length})'),
+            Tab(text: isLoading ? 'Active' : 'Active (${active.length})'),
+            Tab(text: isLoading ? 'Completed' : 'Completed (${completed.length})'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _OrderList(orders: orders),
-          _OrderList(orders: active),
-          _OrderList(orders: completed),
-        ],
-      ),
+      body: isLoading
+          ? const OrderListShimmer()
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _OrderList(orders: orders),
+                _OrderList(orders: active),
+                _OrderList(orders: completed),
+              ],
+            ),
     );
   }
 }

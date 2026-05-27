@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/providers/notification_provider.dart';
 import '../../core/services/first_launch_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/dhav_pune_scene.dart';
@@ -99,6 +100,8 @@ class _SplashScreenState extends State<SplashScreen>
     await auth.bootstrap();
     if (!mounted) return;
     if (auth.isLoggedIn) {
+      // Pre-load notification history in background
+      context.read<NotificationProvider>().loadFromBackend();
       Navigator.pushReplacementNamed(context, '/home');
       return;
     }
@@ -349,7 +352,7 @@ class _SplashScreenState extends State<SplashScreen>
                   color: Colors.white,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+                  letterSpacing: 1.2,
                 ),
               ),
             ],
@@ -359,4 +362,3 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
-

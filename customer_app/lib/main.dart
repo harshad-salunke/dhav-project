@@ -8,6 +8,7 @@ import 'core/providers/address_provider.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/cart_provider.dart';
 import 'core/providers/catalog_provider.dart';
+import 'core/providers/notification_provider.dart';
 import 'core/providers/order_provider.dart';
 import 'core/services/fcm_service.dart';
 import 'core/theme/app_theme.dart';
@@ -28,6 +29,8 @@ import 'features/address/saved_addresses_screen.dart';
 import 'features/profile/profile_screen.dart';
 import 'features/search/search_screen.dart';
 import 'features/notifications/notifications_screen.dart';
+import 'features/help/help_support_screen.dart';
+import 'features/orders/order_detail_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 late FcmService fcmService;
@@ -44,7 +47,7 @@ void main() async {
   // Firebase
   await Firebase.initializeApp();
 
-  // FCM service
+  // FCM service (notificationProvider injected after MultiProvider tree is built)
   fcmService = FcmService(navigatorKey: navigatorKey);
   await fcmService.init();
 
@@ -63,6 +66,12 @@ class DhavCustomerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CartProvider()),
         ChangeNotifierProvider(create: (_) => CatalogProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
+        ChangeNotifierProvider(create: (ctx) {
+          final np = NotificationProvider();
+          // Inject into FcmService so foreground FCM messages populate the list
+          fcmService.notificationProvider = np;
+          return np;
+        }),
       ],
       child: MaterialApp(
         title: 'DHAV',
@@ -86,7 +95,17 @@ class DhavCustomerApp extends StatelessWidget {
           AppRoutes.orderHistory: (_) => const OrderHistoryScreen(),
           AppRoutes.profile: (_) => const ProfileScreen(),
           AppRoutes.notifications: (_) => const NotificationsScreen(),
-          '/saved-addresses': (_) => const SavedAddressesScreen(),
+          AppRoutes.savedAddresses: (_) => const SavedAddressesScreen(),
+          AppRoutes.helpSupport: (_) => const HelpSupportScreen(),
+        },
+        onGenerateRoute: (settings) {
+          if (settings.name == AppRoutes.orderDetail) {
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => const OrderDetailScreen(),
+            );
+          }
+          return null;
         },
       ),
     );

@@ -876,17 +876,19 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ── Order-again horizontal shimmer (all cards share one Shimmer context) ──
   Widget _buildOrderAgainShimmer() {
-    return SizedBox(
-      height: 130,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: 4,
-        itemBuilder: (_, __) => Shimmer.fromColors(
-          baseColor: const Color(0xFFE8E8E8),
-          highlightColor: const Color(0xFFF5F5F5),
-          child: Container(
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFFEAEAEA),
+      highlightColor: const Color(0xFFF8F8F8),
+      child: SizedBox(
+        height: 130,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: 4,
+          itemBuilder: (_, __) => Container(
             width: 100,
             margin: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
@@ -898,28 +900,39 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ── Product grid shimmer (single synchronized shimmer over all 6 cards) ──
   Widget _buildShimmerGrid() {
-    return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      sliver: SliverGrid(
-        delegate: SliverChildBuilderDelegate(
-          (_, __) => Shimmer.fromColors(
-            baseColor: const Color(0xFFE8E8E8),
-            highlightColor: const Color(0xFFF5F5F5),
-            child: Container(
+    return SliverToBoxAdapter(
+      child: Shimmer.fromColors(
+        baseColor: const Color(0xFFEAEAEA),
+        highlightColor: const Color(0xFFF8F8F8),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.72,
+            ),
+            itemCount: 6,
+            itemBuilder: (_, __) => Container(
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     flex: 3,
                     child: Container(
                       decoration: const BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(16)),
+                        borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(16)),
                       ),
                     ),
                   ),
@@ -941,20 +954,15 @@ class _HomeScreenState extends State<HomeScreen>
                               margin: const EdgeInsets.only(bottom: 10)),
                           const Spacer(),
                           Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Container(
-                                  height: 13,
-                                  width: 36,
-                                  color: Colors.white),
+                              Container(height: 13, width: 36, color: Colors.white),
                               Container(
                                 width: 30,
                                 height: 30,
                                 decoration: BoxDecoration(
                                     color: Colors.white,
-                                    borderRadius:
-                                        BorderRadius.circular(8)),
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
                             ],
                           ),
@@ -966,13 +974,6 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ),
-          childCount: 6,
-        ),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.72,
         ),
       ),
     );

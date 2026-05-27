@@ -469,7 +469,8 @@ class IncomingOrderDetailsScreen extends StatefulWidget {
 
 class _IncomingOrderDetailsScreenState
     extends State<IncomingOrderDetailsScreen> {
-  bool _busy = false;
+  // Details sheet never makes async calls; always non-busy.
+  final bool _busy = false;
 
   @override
   Widget build(BuildContext context) {

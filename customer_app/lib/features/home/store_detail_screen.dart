@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:shimmer/shimmer.dart';
 import '../../core/models/catalog_item.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class StoreDetailScreen extends StatefulWidget {
   final Map<String, dynamic> storeSnippet;
@@ -339,7 +339,7 @@ class _StoreDetailScreenState extends State<StoreDetailScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) return _buildShimmerGrid();
+    if (_loading) return const StoreDetailShimmer();
     if (_error != null) return _buildError();
     if (_filtered.isEmpty) return _buildEmpty();
     return GridView.builder(
@@ -371,77 +371,7 @@ class _StoreDetailScreenState extends State<StoreDetailScreen> {
     );
   }
 
-  Widget _buildShimmerGrid() {
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.75,
-      ),
-      itemCount: 8,
-      itemBuilder: (_, __) => Shimmer.fromColors(
-        baseColor: const Color(0xFFE8E8E8),
-        highlightColor: const Color(0xFFF5F5F5),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            children: [
-              Expanded(
-                flex: 3,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                          height: 11,
-                          color: Colors.white,
-                          margin: const EdgeInsets.only(bottom: 6)),
-                      Container(
-                          height: 9,
-                          width: 55,
-                          color: Colors.white,
-                          margin: const EdgeInsets.only(bottom: 10)),
-                      const Spacer(),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                              height: 13, width: 36, color: Colors.white),
-                          Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // _buildShimmerGrid replaced by StoreDetailShimmer from shimmer_widgets.dart
 
   Widget _buildError() {
     return Center(

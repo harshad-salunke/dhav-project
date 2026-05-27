@@ -102,6 +102,137 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     }
   }
 
+  void _showHelpSheet(BuildContext context) {
+    final orderId = _order?.orderId ?? '';
+
+    Widget helpOption(
+        {required IconData icon,
+        required Color color,
+        required String label,
+        required String sub,
+        required VoidCallback onTap}) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10)),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary)),
+                    Text(sub,
+                        style: GoogleFonts.inter(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded,
+                  color: color.withValues(alpha: 0.7), size: 20),
+            ],
+          ),
+        ),
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Text('Need Help?',
+                style: GoogleFonts.inter(
+                    fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            if (orderId.isNotEmpty)
+              Text('Order #${orderId.substring(0, 8).toUpperCase()}',
+                  style: GoogleFonts.inter(
+                      fontSize: 13, color: AppColors.textSecondary)),
+            const SizedBox(height: 20),
+            helpOption(
+              icon: Icons.chat_rounded,
+              color: const Color(0xFF25D366),
+              label: 'WhatsApp Support',
+              sub: 'Fastest response',
+              onTap: () async {
+                Navigator.pop(context);
+                final msg = orderId.isNotEmpty
+                    ? 'Hi+DHAV+Support,+I+need+help+with+order+%23${orderId.substring(0, 8).toUpperCase()}'
+                    : 'Hi+DHAV+Support,+I+need+help+with+my+order';
+                final uri = Uri.parse('https://wa.me/919876543210?text=$msg');
+                if (await canLaunchUrl(uri)) {
+                  launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            helpOption(
+              icon: Icons.phone_rounded,
+              color: AppColors.success,
+              label: 'Call Support',
+              sub: '9AM – 9PM',
+              onTap: () async {
+                Navigator.pop(context);
+                final uri = Uri.parse('tel:+919876543210');
+                if (await canLaunchUrl(uri)) launchUrl(uri);
+              },
+            ),
+            const SizedBox(height: 10),
+            helpOption(
+              icon: Icons.email_rounded,
+              color: AppColors.primary,
+              label: 'Email Us',
+              sub: 'support@dhav.in',
+              onTap: () async {
+                Navigator.pop(context);
+                final subject = orderId.isNotEmpty
+                    ? 'Issue+with+order+%23${orderId.substring(0, 8).toUpperCase()}'
+                    : 'Order+Support+Request';
+                final uri =
+                    Uri.parse('mailto:support@dhav.in?subject=$subject');
+                if (await canLaunchUrl(uri)) {
+                  launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadOrder(String orderId) async {
     final order = await context.read<OrderProvider>().fetchOrder(orderId);
     if (!mounted || order == null) return;
@@ -231,7 +362,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () {},
+            onPressed: () => _showHelpSheet(context),
             child: Text(
               'Need Help?',
               style: GoogleFonts.inter(
@@ -263,7 +394,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
                 _buildVerticalTimeline(),
                 const SizedBox(height: 12),
                 GestureDetector(
-                  onTap: () {},
+                  onTap: () => _showHelpSheet(context),
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 16),
                     child: Text(
@@ -697,3 +828,4 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     );
   }
 }
+

@@ -11,4 +11,5 @@ class AppRoutes {
   static const String settlements = '/settlements';
   static const String catalog = '/catalog';
   static const String coverage = '/coverage';
+  static const String notifications = '/notifications';
 }

@@ -8,6 +8,7 @@ import 'core/providers/auth_provider.dart';
 import 'core/providers/delivery_provider.dart';
 import 'core/providers/earnings_provider.dart';
 import 'core/providers/inventory_provider.dart';
+import 'core/providers/notification_provider.dart';
 import 'core/providers/order_provider.dart';
 import 'core/providers/store_provider.dart';
 import 'core/providers/theme_provider.dart';
@@ -28,6 +29,7 @@ import 'features/delivery/delivery_incoming_assignment_screen.dart';
 import 'features/earnings/earnings_screen.dart';
 import 'features/help/help_support_screen.dart';
 import 'features/inventory/inventory_screen.dart';
+import 'features/inventory/add_product_screen.dart';
 import 'features/notifications/notifications_screen.dart';
 import 'features/orders/active_order_screen.dart';
 import 'features/orders/incoming_order_screen.dart';
@@ -123,6 +125,12 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => InventoryProvider()),
         ChangeNotifierProvider(create: (_) => EarningsProvider()),
         ChangeNotifierProvider(create: (_) => DeliveryProvider()),
+        ChangeNotifierProvider(create: (_) {
+          final np = StoreNotificationProvider();
+          // Wire into FcmService so live FCM messages populate the list
+          fcmService.notificationProvider = np;
+          return np;
+        }),
       ],
       child: DhavStoreApp(coldLaunchOrder: coldLaunchOrder),
     ),
@@ -277,6 +285,8 @@ class _DhavStoreAppState extends State<DhavStoreApp>
             return _pageRoute(OrderDetailScreen(orderId: orderId));
           case AppRoutes.inventory:
             return _pageRoute(const InventoryScreen());
+          case AppRoutes.addProduct:
+            return _pageRoute(const AddProductScreen());
           case AppRoutes.earnings:
             return _pageRoute(const EarningsScreen());
           case AppRoutes.profile:
@@ -319,8 +329,8 @@ class _DhavStoreAppState extends State<DhavStoreApp>
       },
     );
   }
+}
 
-  PageRoute _pageRoute(Widget page) {
-    return MaterialPageRoute(builder: (_) => page);
-  }
+Route<dynamic> _pageRoute(Widget page) {
+  return MaterialPageRoute(builder: (_) => page);
 }

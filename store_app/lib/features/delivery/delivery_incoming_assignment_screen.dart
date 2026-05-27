@@ -807,7 +807,6 @@ class _AddressCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final String badge;
-  final String? phone;
 
   const _AddressCard({
     required this.icon,
@@ -815,7 +814,6 @@ class _AddressCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.badge,
-    this.phone,
   });
 
   @override
@@ -850,14 +848,6 @@ class _AddressCard extends StatelessWidget {
                 Text(subtitle,
                     style: GoogleFonts.inter(
                         fontSize: 12, color: AppColors.textGrey)),
-                if (phone != null) ...[
-                  const SizedBox(height: 4),
-                  Text(phone!,
-                      style: GoogleFonts.inter(
-                          fontSize: 12,
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600)),
-                ],
               ],
             ),
           ),

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/settlement.dart';
 import '../../core/providers/earnings_provider.dart';
+import '../../core/providers/store_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class EarningsScreen extends StatefulWidget {
   const EarningsScreen({super.key});
@@ -18,13 +21,23 @@ class _EarningsScreenState extends State<EarningsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => context.read<EarningsProvider>().load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<EarningsProvider>().load();
+      final sp = context.read<StoreProvider>();
+      if (sp.store == null) sp.loadMyStore();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<EarningsProvider>();
+    final store = context.watch<StoreProvider>().store;
+    // Derive UPI ID: prefer phone@paytm (common in India), fallback to phone only
+    final storePhone = store?.phone ?? '';
+    final upiId = storePhone.isNotEmpty
+        ? '${storePhone.replaceAll(RegExp(r'[^0-9]'), '')}@paytm'
+        : null;
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A1F2E),
       body: SafeArea(
@@ -33,8 +46,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
             const _TopHeader(),
             Expanded(
               child: prov.loading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: Colors.white))
+                  ? const EarningsShimmer()
                   : prov.error != null
                       ? Center(
                           child: Text(prov.error!,
@@ -44,7 +56,8 @@ class _EarningsScreenState extends State<EarningsScreen> {
                           child: ListView(
                             padding: const EdgeInsets.all(16),
                             children: [
-                              _CurrentWeekCard(settlement: prov.current),
+                              _CurrentWeekCard(
+                                  settlement: prov.current, upiId: upiId),
                               const SizedBox(height: 22),
                               _SectionLabel(text: 'PAST WEEKLY HISTORY'),
                               const SizedBox(height: 12),
@@ -110,7 +123,8 @@ class _TopHeader extends StatelessWidget {
 
 class _CurrentWeekCard extends StatelessWidget {
   final WeeklySettlement? settlement;
-  const _CurrentWeekCard({required this.settlement});
+  final String? upiId;
+  const _CurrentWeekCard({required this.settlement, this.upiId});
 
   @override
   Widget build(BuildContext context) {
@@ -194,38 +208,101 @@ class _CurrentWeekCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.qr_code_2_rounded, color: AppColors.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Pay DHAV via UPI',
-                        style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white)),
-                    Text('dhav@upi (placeholder)',
-                        style: GoogleFonts.inter(
-                            fontSize: 12, color: Colors.white70)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        _UpiPayCard(upiId: upiId),
       ],
     );
   }
 }
+
+// ── UPI pay card ─────────────────────────────────────────────────────────────
+
+class _UpiPayCard extends StatelessWidget {
+  final String? upiId;
+  const _UpiPayCard({this.upiId});
+
+  void _copyToClipboard(BuildContext context, String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('UPI ID copied: $text',
+            style: GoogleFonts.inter(fontSize: 13)),
+        backgroundColor: AppColors.green,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayUpi = upiId ?? 'dhav@upi';
+    final isPlaceholder = upiId == null;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.qr_code_2_rounded, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pay DHAV via UPI',
+                  style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      displayUpi,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: isPlaceholder
+                            ? Colors.white38
+                            : Colors.white70,
+                        fontStyle: isPlaceholder
+                            ? FontStyle.italic
+                            : FontStyle.normal,
+                      ),
+                    ),
+                    if (isPlaceholder) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '(contact support to configure)',
+                        style: GoogleFonts.inter(
+                            fontSize: 10, color: Colors.white38),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (!isPlaceholder)
+            IconButton(
+              onPressed: () => _copyToClipboard(context, displayUpi),
+              icon: const Icon(Icons.copy_rounded,
+                  color: AppColors.primary, size: 18),
+              tooltip: 'Copy UPI ID',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Mini metric ───────────────────────────────────────────────────────────────
 
 class _MiniMetric extends StatelessWidget {
   final String label;

@@ -10,6 +10,7 @@ import '../../core/providers/store_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
 import '../../core/widgets/dhav_bottom_nav.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 import '../earnings/earnings_screen.dart';
 import '../inventory/inventory_screen.dart';
 import '../orders/order_list_screen.dart';
@@ -68,8 +69,12 @@ class _DashboardHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final store = context.watch<StoreProvider>().store;
+    final storeProv = context.watch<StoreProvider>();
+    final orderProv = context.watch<OrderProvider>();
+    final store = storeProv.store;
+    final isInitialLoading = storeProv.loading && store == null;
     final title = store?.shopName.toUpperCase() ?? 'KIRANA PARTNER';
+
     return SafeArea(
       child: RefreshIndicator(
         onRefresh: onRefresh,
@@ -86,15 +91,17 @@ class _DashboardHome extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      title,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: c.textPrimary,
-                          letterSpacing: 2),
-                    ),
+                    child: isInitialLoading
+                        ? DhavShimmer(child: ShimmerBox(width: 160, height: 14, radius: 4))
+                        : Text(
+                            title,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: c.textPrimary,
+                                letterSpacing: 2),
+                          ),
                   ),
                   GestureDetector(
                     onTap: () => Navigator.pushNamed(context, AppRoutes.notifications),
@@ -118,23 +125,25 @@ class _DashboardHome extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    _PendingVerificationBanner(),
-                    _StoreStatusCard(),
-                    SizedBox(height: 16),
-                    _StatsRow(),
-                    SizedBox(height: 20),
-                    _ActiveOrderSection(),
-                    SizedBox(height: 20),
-                    _RecentOrdersSection(),
-                  ],
-                ),
-              ),
+              child: isInitialLoading
+                  ? const DashboardShimmer()
+                  : SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          _PendingVerificationBanner(),
+                          _StoreStatusCard(),
+                          SizedBox(height: 16),
+                          _StatsRow(),
+                          SizedBox(height: 20),
+                          _ActiveOrderSection(),
+                          SizedBox(height: 20),
+                          _RecentOrdersSection(),
+                        ],
+                      ),
+                    ),
             ),
           ],
         ),

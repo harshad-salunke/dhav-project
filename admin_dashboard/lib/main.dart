@@ -7,6 +7,7 @@ import 'core/constants/app_routes.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/catalog_provider.dart';
 import 'core/providers/dashboard_provider.dart';
+import 'core/providers/notifications_provider.dart';
 import 'core/providers/stores_provider.dart';
 import 'core/providers/orders_provider.dart';
 import 'core/providers/settlements_provider.dart';
@@ -22,6 +23,7 @@ import 'features/orders/orders_screen.dart';
 import 'features/customers/customers_screen.dart';
 import 'features/settlements/settlements_screen.dart';
 import 'features/coverage/coverage_screen.dart';
+import 'features/notifications/notifications_screen.dart';
 
 // ─── Firebase Web config ───────────────────────────────────────────────────────
 // Replace these values with your actual Firebase project's web config.
@@ -56,6 +58,7 @@ class DhavAdminApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => OrdersProvider()),
         ChangeNotifierProvider(create: (_) => SettlementsProvider()),
         ChangeNotifierProvider(create: (_) => CatalogProvider()),
+        ChangeNotifierProvider(create: (_) => AdminNotificationsProvider()),
       ],
       child: MaterialApp(
         title: 'DHAV Admin',
@@ -103,6 +106,8 @@ class DhavAdminApp extends StatelessWidget {
               const _ProtectedRoute(child: CatalogScreen()),
           AppRoutes.coverage: (_) =>
               const _ProtectedRoute(child: CoverageScreen()),
+          AppRoutes.notifications: (_) =>
+              const _ProtectedRoute(child: NotificationsScreen()),
         },
       ),
     );

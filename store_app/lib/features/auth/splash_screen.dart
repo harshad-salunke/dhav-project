@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_routes.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/providers/notification_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
 import '../../main.dart' show fcmService;
@@ -81,11 +82,16 @@ class _SplashScreenState extends State<SplashScreen>
       }
     }
 
+    // Re-check mounted after the two extra awaits above (lines 49 & 52).
+    if (!mounted) return;
+
     if (auth.status == AuthStatus.signedIn) {
       final user = auth.user!;
       if (user.isStoreOwner) {
         fcmService.syncTokenToBackend();
         fcmService.listenForTokenRefresh();
+        // Pre-load notification history in background
+        context.read<StoreNotificationProvider>().loadFromBackend();
         Navigator.pushReplacementNamed(
           context,
           AppRoutes.permissionGate,

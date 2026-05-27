@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/main_shell.dart';
+import '../help/help_support_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -70,9 +72,11 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      onPressed: () {/* edit profile */},
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/profile-setup'),
                       icon: const Icon(Icons.edit_outlined,
                           color: AppColors.textSecondary),
+                      tooltip: 'Edit Profile',
                     ),
                   ],
                 ),
@@ -146,7 +150,11 @@ class ProfileScreen extends StatelessWidget {
                   _MenuItem(
                     icon: Icons.help_outline_rounded,
                     label: 'Help & Support',
-                    onTap: () {},
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const HelpSupportScreen()),
+                    ),
                   ),
                   _MenuItem(
                     icon: Icons.info_outline_rounded,
@@ -156,7 +164,7 @@ class ProfileScreen extends StatelessWidget {
                   _MenuItem(
                     icon: Icons.star_outline_rounded,
                     label: 'Rate the App',
-                    onTap: () {},
+                    onTap: () => _rateApp(context),
                   ),
                 ],
               ),
@@ -272,6 +280,75 @@ class ProfileScreen extends StatelessWidget {
                     : null,
                 onTap: () => Navigator.pop(context),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _rateApp(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const Icon(Icons.star_rounded, color: Colors.amber, size: 48),
+            const SizedBox(height: 12),
+            Text('Enjoying DHAV?',
+                style: GoogleFonts.inter(
+                    fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(
+              'Your rating helps us reach more customers\nand improve our service.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                  fontSize: 14, color: AppColors.textSecondary, height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  const playStoreUrl =
+                      'https://play.google.com/store/apps/details?id=com.dhav.customer';
+                  final uri = Uri.parse(playStoreUrl);
+                  if (await canLaunchUrl(uri)) {
+                    launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text('Rate on Play Store',
+                    style: GoogleFonts.inter(
+                        fontSize: 15, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Maybe Later',
+                  style: GoogleFonts.inter(
+                      fontSize: 14, color: AppColors.textSecondary)),
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),

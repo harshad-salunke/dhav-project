@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
 
 class HelpSupportScreen extends StatelessWidget {
   const HelpSupportScreen({super.key});
+
+  static Future<void> _launch(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  static void _callSupport() => _launch('tel:+919876543210');
+  static void _whatsAppSupport() =>
+      _launch('https://wa.me/919876543210?text=Hi%20DHAV%20Support%2C%20I%20need%20help');
+  static void _emailSupport() =>
+      _launch('mailto:support@dhav.in?subject=Store%20Partner%20Support');
 
   static const List<Map<String, dynamic>> _faqs = [
     {
@@ -68,7 +80,7 @@ class HelpSupportScreen extends StatelessWidget {
                   label: 'Call Support',
                   sub: '9AM – 9PM',
                   color: AppColors.green,
-                  onTap: () {},
+                  onTap: _callSupport,
                   c: c,
                 ),
                 const SizedBox(width: 12),
@@ -77,7 +89,7 @@ class HelpSupportScreen extends StatelessWidget {
                   label: 'WhatsApp',
                   sub: 'Quick reply',
                   color: const Color(0xFF25D366),
-                  onTap: () {},
+                  onTap: _whatsAppSupport,
                   c: c,
                 ),
                 const SizedBox(width: 12),
@@ -86,7 +98,7 @@ class HelpSupportScreen extends StatelessWidget {
                   label: 'Email Us',
                   sub: 'support@dhav.in',
                   color: AppColors.primary,
-                  onTap: () {},
+                  onTap: _emailSupport,
                   c: c,
                 ),
               ],
@@ -130,7 +142,7 @@ class HelpSupportScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   GestureDetector(
-                    onTap: () {},
+                    onTap: _emailSupport,
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 14),

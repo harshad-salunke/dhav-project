@@ -5,6 +5,7 @@ from models.user import TokenVerifyResponse
 from dependencies import require_role
 from services.geofencing import index_store_geofence, remove_store_from_geofence_index
 from services.penalties import process_store_failure
+from services.notifications import send_broadcast_notification
 from utils.helpers import now_ms, new_id
 
 router = APIRouter()
@@ -574,3 +575,120 @@ async def list_settlements(
         settlements = [s for s in settlements if s.get("status") == status]
     settlements.sort(key=lambda s: s.get("created_at", 0), reverse=True)
     return {"settlements": settlements, "total": len(settlements)}
+
+
+# ── Admin Broadcast Notifications ─────────────────────────────────────────────
+
+@router.post("/notifications/broadcast", status_code=200)
+async def broadcast_notification(
+    body: dict,
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    """
+    Send a push notification + persist it for a target audience.
+
+    Body:
+      target:  "all_customers" | "all_stores" | "specific_store" | "specific_customer"
+      title:   str
+      message: str
+      type:    "offer" | "announcement" | "system" | "order_update"  (default: "announcement")
+      store_id:    str  (required when target == "specific_store")
+      customer_uid: str (required when target == "specific_customer")
+    """
+    target = body.get("target")
+    title = (body.get("title") or "").strip()
+    message = (body.get("message") or "").strip()
+    notif_type = body.get("type", "announcement")
+
+    if not title or not message:
+        raise HTTPException(status_code=422, detail="title and message are required")
+    if target not in ("all_customers", "all_stores", "specific_store", "specific_customer"):
+        raise HTTPException(
+            status_code=422,
+            detail="target must be one of: all_customers, all_stores, specific_store, specific_customer",
+        )
+
+    tokens: list[str] = []
+    user_ids: list[str] = []
+
+    if target == "all_customers":
+        users_node = db.reference("users").get() or {}
+        for uid, u in users_node.items():
+            if u.get("role") == "customer":
+                user_ids.append(uid)
+                if u.get("fcm_token"):
+                    tokens.append(u["fcm_token"])
+
+    elif target == "all_stores":
+        stores_node = db.reference("stores").get() or {}
+        for store in stores_node.values():
+            owner_uid = store.get("owner_uid")
+            if owner_uid:
+                user_ids.append(owner_uid)
+            if store.get("fcm_token"):
+                tokens.append(store["fcm_token"])
+
+    elif target == "specific_store":
+        store_id = body.get("store_id")
+        if not store_id:
+            raise HTTPException(status_code=422, detail="store_id required for specific_store target")
+        store = db.reference(f"stores/{store_id}").get()
+        if not store:
+            raise HTTPException(status_code=404, detail="Store not found")
+        owner_uid = store.get("owner_uid")
+        if owner_uid:
+            user_ids.append(owner_uid)
+        if store.get("fcm_token"):
+            tokens.append(store["fcm_token"])
+
+    elif target == "specific_customer":
+        customer_uid = body.get("customer_uid")
+        if not customer_uid:
+            raise HTTPException(status_code=422, detail="customer_uid required for specific_customer target")
+        user = db.reference(f"users/{customer_uid}").get()
+        if not user:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        user_ids.append(customer_uid)
+        if user.get("fcm_token"):
+            tokens.append(user["fcm_token"])
+
+    result = send_broadcast_notification(
+        tokens=tokens,
+        user_ids=user_ids,
+        title=title,
+        body=message,
+        notif_type=notif_type,
+        sender="admin",
+    )
+    return {
+        "status": "sent",
+        "target": target,
+        "recipients": len(user_ids),
+        **result,
+    }
+
+
+@router.get("/notifications/history")
+async def get_notification_history(
+    uid: str = Query(None),
+    limit: int = Query(50, le=200),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    """
+    Admin: view notification history for any user (or all recent if uid omitted).
+    """
+    if uid:
+        raw = db.reference(f"notifications/{uid}").get() or {}
+        notifs = list(raw.values())
+        notifs.sort(key=lambda n: n.get("created_at", 0), reverse=True)
+        return {"uid": uid, "notifications": notifs[:limit], "total": len(notifs)}
+
+    # Return a flat list of the most recent notifications across all users
+    all_notifs_node = db.reference("notifications").get() or {}
+    all_notifs = []
+    for u_id, u_notifs in all_notifs_node.items():
+        if isinstance(u_notifs, dict):
+            for n in u_notifs.values():
+                all_notifs.append({**n, "_uid": u_id})
+    all_notifs.sort(key=lambda n: n.get("created_at", 0), reverse=True)
+    return {"notifications": all_notifs[:limit], "total": len(all_notifs)}

@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vibration/vibration.dart';
 
 import '../../firebase_options.dart';
+import '../providers/notification_provider.dart';
 import 'api_client.dart';
 
 typedef IncomingOrderHandler = void Function(Map<String, String> data);
@@ -74,6 +75,10 @@ class FcmService {
 
   /// Called when user taps a local notification from the tray (foreground/background).
   NotificationTapHandler? onNotificationTap;
+
+  /// Injected after the provider tree is ready. Used to accumulate
+  /// in-app notification history shown in the Notifications screen.
+  StoreNotificationProvider? notificationProvider;
 
   StreamSubscription<RemoteMessage>? _fgSub;
   StreamSubscription<RemoteMessage>? _openSub;
@@ -173,12 +178,38 @@ class FcmService {
       for (final e in message.data.entries) e.key: e.value.toString(),
     };
 
+    final title = data['title'] ?? message.notification?.title ?? '';
+    final body  = data['body']  ?? message.notification?.body  ?? '';
+
     if (data['type'] == 'new_order') {
       _triggerOrderAlert(data, notif: message.notification);
       onIncomingOrder?.call(data);
+      // Accumulate in notification history
+      notificationProvider?.add(
+        title: title.isNotEmpty ? title : 'New Order! 🛒',
+        body: body.isNotEmpty
+            ? body
+            : '${data['item_count'] ?? '?'} items · ₹${data['total'] ?? '?'}',
+        orderId: data['order_id'],
+        type: StoreNotificationType.newOrder,
+      );
     } else if (data['type'] == 'delivery_assigned') {
       _triggerDeliveryAlert(data, notif: message.notification);
       onDeliveryAssigned?.call(data);
+      notificationProvider?.add(
+        title: title.isNotEmpty ? title : 'Delivery Assignment',
+        body: body.isNotEmpty ? body : 'A new delivery has been assigned.',
+        orderId: data['order_id'],
+        type: StoreNotificationType.deliveryAssigned,
+      );
+    } else if (title.isNotEmpty || body.isNotEmpty) {
+      // Any other FCM message with a title/body (e.g. settlement, strike)
+      notificationProvider?.add(
+        title: title,
+        body: body,
+        orderId: data['order_id'],
+        type: StoreNotificationProvider.typeFromData(data),
+      );
     }
   }
 

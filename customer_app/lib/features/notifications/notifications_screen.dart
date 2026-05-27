@@ -1,106 +1,68 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import '../../core/providers/notification_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
-class _NotificationItem {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String body;
-  final String time;
-  final bool unread;
-
-  const _NotificationItem({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.body,
-    required this.time,
-    this.unread = false,
-  });
-}
-
-class NotificationsScreen extends StatefulWidget {
+class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
 
   @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
-}
-
-class _NotificationsScreenState extends State<NotificationsScreen> {
-  // Mock notifications — in production these come from Firebase/backend
-  final _notifications = [
-    const _NotificationItem(
-      icon: Icons.check_circle_rounded,
-      iconColor: AppColors.success,
-      title: 'Order Accepted!',
-      body: 'Ram Kirana Store accepted your order and is packing it now.',
-      time: 'Just now',
-      unread: true,
-    ),
-    const _NotificationItem(
-      icon: Icons.delivery_dining_rounded,
-      iconColor: AppColors.primary,
-      title: 'Out for Delivery',
-      body: 'Raju is on the way to deliver your order. ETA: ~12 minutes.',
-      time: '5 min ago',
-      unread: true,
-    ),
-    const _NotificationItem(
-      icon: Icons.home_rounded,
-      iconColor: AppColors.success,
-      title: 'Order Delivered!',
-      body: 'Your order has been delivered. Thank you for shopping with DHAV!',
-      time: '2 days ago',
-    ),
-    const _NotificationItem(
-      icon: Icons.storefront_rounded,
-      iconColor: AppColors.warning,
-      title: 'Store Searching',
-      body: 'We are looking for available stores near you. This usually takes less than a minute.',
-      time: '3 days ago',
-    ),
-    const _NotificationItem(
-      icon: Icons.cancel_rounded,
-      iconColor: AppColors.error,
-      title: 'No Stores Available',
-      body: 'Sorry, no stores were available for your last order. Please try again later.',
-      time: '1 week ago',
-    ),
-  ];
-
-  @override
   Widget build(BuildContext context) {
-    final unreadCount = _notifications.where((n) => n.unread).length;
+    final np = context.watch<NotificationProvider>();
+    final notifications = np.notifications;
+    final unreadCount = np.unreadCount;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text('Notifications',
-            style: GoogleFonts.inter(
-                fontSize: 18, fontWeight: FontWeight.w700)),
+        backgroundColor: AppColors.surface,
+        elevation: 0,
+        title: Text(
+          'Notifications',
+          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
         actions: [
           if (unreadCount > 0)
             TextButton(
               onPressed: () =>
-                  setState(() { /* mark all read */ }),
-              child: Text('Mark all read',
-                  style: GoogleFonts.inter(
-                      color: AppColors.primary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500)),
+                  context.read<NotificationProvider>().markAllRead(),
+              child: Text(
+                'Mark all read',
+                style: GoogleFonts.inter(
+                    color: AppColors.primary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500),
+              ),
             ),
         ],
       ),
-      body: _notifications.isEmpty
+      body: np.loading
+          ? const NotificationsShimmer()
+          : notifications.isEmpty
           ? _buildEmpty()
           : ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _notifications.length,
+              itemCount: notifications.length,
               separatorBuilder: (_, __) =>
                   const Divider(height: 1, color: AppColors.divider),
-              itemBuilder: (context, i) =>
-                  _NotificationTile(notification: _notifications[i]),
+              itemBuilder: (context, i) {
+                final n = notifications[i];
+                return _NotificationTile(
+                  notification: n,
+                  onTap: () {
+                    context.read<NotificationProvider>().markRead(n.id);
+                    if (n.orderId != null) {
+                      Navigator.pushNamed(
+                        context,
+                        '/order-tracking',
+                        arguments: {'order_id': n.orderId},
+                      );
+                    }
+                  },
+                );
+              },
             ),
     );
   }
@@ -113,17 +75,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           Container(
             width: 80,
             height: 80,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
                 color: AppColors.primaryLight, shape: BoxShape.circle),
             child: const Icon(Icons.notifications_none_rounded,
                 size: 40, color: AppColors.primary),
           ),
           const SizedBox(height: 16),
-          Text('No notifications yet',
-              style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary)),
+          Text(
+            'No notifications yet',
+            style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "Order updates will appear here",
+            style: GoogleFonts.inter(
+                fontSize: 13, color: AppColors.textHint),
+          ),
         ],
       ),
     );
@@ -131,69 +101,130 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 }
 
 class _NotificationTile extends StatelessWidget {
-  final _NotificationItem notification;
-  const _NotificationTile({required this.notification});
+  final AppNotification notification;
+  final VoidCallback onTap;
+
+  const _NotificationTile({required this.notification, required this.onTap});
+
+  IconData get _icon {
+    switch (notification.type) {
+      case NotificationType.orderAccepted:
+        return Icons.check_circle_rounded;
+      case NotificationType.outForDelivery:
+        return Icons.delivery_dining_rounded;
+      case NotificationType.delivered:
+        return Icons.home_rounded;
+      case NotificationType.orderFailed:
+        return Icons.cancel_rounded;
+      case NotificationType.broadcasting:
+        return Icons.storefront_rounded;
+      case NotificationType.announcement:
+        return Icons.campaign_rounded;
+      case NotificationType.offer:
+        return Icons.local_offer_rounded;
+      case NotificationType.system:
+        return Icons.info_outline_rounded;
+      case NotificationType.general:
+        return Icons.notifications_rounded;
+    }
+  }
+
+  Color get _iconColor {
+    switch (notification.type) {
+      case NotificationType.orderAccepted:
+        return AppColors.success;
+      case NotificationType.outForDelivery:
+        return AppColors.primary;
+      case NotificationType.delivered:
+        return AppColors.success;
+      case NotificationType.orderFailed:
+        return AppColors.error;
+      case NotificationType.broadcasting:
+        return AppColors.warning;
+      case NotificationType.announcement:
+        return AppColors.primary;
+      case NotificationType.offer:
+        return AppColors.success;
+      case NotificationType.system:
+        return AppColors.primary;
+      case NotificationType.general:
+        return AppColors.primary;
+    }
+  }
+
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'Yesterday';
+    return '${diff.inDays} days ago';
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: notification.unread
-          ? AppColors.primaryLight.withOpacity(0.4)
-          : Colors.transparent,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: notification.iconColor.withOpacity(0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(notification.icon,
-                color: notification.iconColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(notification.title,
-                          style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: notification.unread
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                              color: AppColors.textPrimary)),
-                    ),
-                    Text(notification.time,
-                        style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: AppColors.textHint)),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(notification.body,
-                    style: GoogleFonts.inter(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                        height: 1.4)),
-              ],
-            ),
-          ),
-          if (notification.unread)
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        color: notification.isRead
+            ? Colors.transparent
+            : AppColors.primaryLight.withValues(alpha: 0.4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Container(
-              width: 8,
-              height: 8,
-              margin: const EdgeInsets.only(top: 6, left: 8),
-              decoration: const BoxDecoration(
-                  color: AppColors.primary, shape: BoxShape.circle),
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _iconColor.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(_icon, color: _iconColor, size: 22),
             ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          notification.title,
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: notification.isRead
+                                ? FontWeight.w600
+                                : FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        _formatTime(notification.receivedAt),
+                        style: GoogleFonts.inter(
+                            fontSize: 11, color:AppColors.textHint),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    notification.body,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      height: 1.4,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

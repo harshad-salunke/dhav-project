@@ -4,6 +4,7 @@ from firebase_admin import db
 from models.store import (
     StoreCreateRequest,
     StoreSelfRegisterRequest,
+    StoreProfileUpdateRequest,
     StoreToggleRequest,
     StoreFCMTokenRequest,
 )
@@ -123,6 +124,52 @@ async def get_my_store(user: TokenVerifyResponse = Depends(require_role("store_o
     if not store:
         raise HTTPException(status_code=404, detail="Store profile not found")
     return store
+
+
+@router.patch("/me/profile")
+async def update_my_profile(
+    body: StoreProfileUpdateRequest,
+    user: TokenVerifyResponse = Depends(require_role("store_owner")),
+):
+    """Store owner updates their own profile: name, phone, hours, address, location."""
+    user_node = db.reference(f"users/{user.uid}").get() or {}
+    store_id = user_node.get("store_id")
+    if not store_id:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    updates: dict = {}
+    if body.shop_name is not None:
+        updates["shop_name"] = body.shop_name
+    if body.owner_name is not None:
+        updates["owner_name"] = body.owner_name
+    if body.phone is not None:
+        updates["phone"] = body.phone
+    if body.address is not None:
+        updates["address"] = body.address
+    if body.operating_hours is not None:
+        updates["operating_hours"] = body.operating_hours.model_dump()
+
+    location_changed = body.lat is not None or body.lng is not None
+    if location_changed:
+        store = db.reference(f"stores/{store_id}").get() or {}
+        current_loc = store.get("location", {})
+        new_lat = body.lat if body.lat is not None else current_loc.get("lat", 0)
+        new_lng = body.lng if body.lng is not None else current_loc.get("lng", 0)
+        new_gh = geohash.encode(new_lat, new_lng, precision=6)
+        updates["location"] = {"lat": new_lat, "lng": new_lng, "geohash": new_gh}
+        # Re-index geofence with new coordinates
+        store_open = store.get("is_open", False)
+        if store_open:
+            remove_store_from_geofence_index(store_id, current_loc.get("lat"), current_loc.get("lng"))
+            index_store_geofence(store_id, new_lat, new_lng,
+                                  is_active=store.get("is_active", True),
+                                  is_verified=store.get("is_verified", False))
+
+    if not updates:
+        return {"status": "no_changes"}
+
+    db.reference(f"stores/{store_id}").update(updates)
+    return {"status": "updated", "updated_fields": list(updates.keys())}
 
 
 @router.patch("/me/toggle")
@@ -267,6 +314,60 @@ async def remove_delivery_boy(
         raise HTTPException(status_code=404, detail="Delivery boy not found")
     db.reference(f"delivery_boys/{delivery_boy_id}").delete()
     return {"status": "removed"}
+
+
+# ── Custom Item Requests (store_owner requests admin to add a product) ─────────
+
+@router.post("/me/custom-items", status_code=201)
+async def request_custom_item(
+    body: dict,
+    user: TokenVerifyResponse = Depends(require_role("store_owner")),
+):
+    """Store owner submits a request for a new catalog item.
+    Admin reviews and either adds it to the master catalog or rejects it.
+    Body: { name, name_hindi?, name_marathi?, category, unit, price, notes? }
+    """
+    user_node = db.reference(f"users/{user.uid}").get() or {}
+    store_id = user_node.get("store_id")
+    if not store_id:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    item_name = (body.get("name") or "").strip()
+    if not item_name:
+        raise HTTPException(status_code=422, detail="Item name is required")
+
+    request_id = new_id()
+    request_data = {
+        "request_id": request_id,
+        "store_id": store_id,
+        "requested_by_uid": user.uid,
+        "name": item_name,
+        "name_hindi": body.get("name_hindi", ""),
+        "name_marathi": body.get("name_marathi", ""),
+        "category": body.get("category", "Other"),
+        "unit": body.get("unit", "piece"),
+        "price": float(body.get("price") or 0),
+        "notes": body.get("notes", ""),
+        "status": "pending",   # pending | approved | rejected
+        "created_at": now_ms(),
+    }
+    db.reference(f"custom_item_requests/{request_id}").set(request_data)
+    return {"request_id": request_id, "status": "pending"}
+
+
+@router.get("/me/custom-items")
+async def list_custom_item_requests(
+    user: TokenVerifyResponse = Depends(require_role("store_owner")),
+):
+    """Returns all custom item requests submitted by this store."""
+    user_node = db.reference(f"users/{user.uid}").get() or {}
+    store_id = user_node.get("store_id")
+    if not store_id:
+        raise HTTPException(status_code=404, detail="Store not found")
+    all_requests = db.reference("custom_item_requests").get() or {}
+    mine = [r for r in all_requests.values() if r.get("store_id") == store_id]
+    mine.sort(key=lambda r: r.get("created_at", 0), reverse=True)
+    return {"requests": mine}
 
 
 @router.get("/{store_id}")

@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/app_routes.dart';
 import '../../core/models/catalog_item.dart';
 import '../../core/providers/inventory_provider.dart';
 import '../../core/providers/store_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/dhav_colors.dart';
+import '../../core/widgets/shimmer_widgets.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -84,6 +86,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         color: AppColors.primary)),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
+        label: Text('Request Product',
+            style: GoogleFonts.inter(
+                fontSize: 13, fontWeight: FontWeight.w700)),
+        onPressed: () =>
+            Navigator.pushNamed(context, AppRoutes.addProduct),
       ),
       body: Column(
         children: [
@@ -164,7 +176,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ),
           Expanded(
             child: inv.loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const InventoryShimmer()
                 : inv.error != null
                     ? Center(
                         child: Text(inv.error!,
@@ -284,11 +296,12 @@ class _InventoryItem extends StatelessWidget {
                     style: GoogleFonts.inter(fontSize: 11, color: c.textHint)),
                 if (item.price > 0) ...[
                   const SizedBox(height: 4),
-                  Text('₹${item.price.toStringAsFixed(0)}',
-                      style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary)),
+                  Text(
+                    '₹${item.price.toStringAsFixed(0)}',
+                    style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
                 ],
               ],
             ),
