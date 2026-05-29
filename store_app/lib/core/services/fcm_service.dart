@@ -39,26 +39,37 @@ Future<void> _backgroundHandler(RemoteMessage message) async {
           ? '${data['item_count'] ?? '?'} items · ₹${data['total'] ?? '?'} — Accept now!'
           : 'You have a new delivery assignment');
 
-  const androidDetails = AndroidNotificationDetails(
-    'dhav_incoming_orders',
-    'Incoming Orders',
-    channelDescription: 'High-priority alerts for new orders',
-    importance: Importance.max,
-    priority: Priority.max,
-    fullScreenIntent: true,
-    category: AndroidNotificationCategory.call,
-    visibility: NotificationVisibility.public,
-    playSound: true,
-    sound: RawResourceAndroidNotificationSound('order_alert'),
-    // notificationRingtone usage makes audio play at RINGTONE volume — bypasses
-    // silent / vibrate / DND modes (same behavior as an incoming phone call).
-    audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
-  );
+  // new_order → ringtone channel (bypasses silent/DND, plays order_alert sound)
+  // delivery_assigned → quiet channel (system default sound, no ringtone override)
+  final androidDetails = isOrder
+      ? const AndroidNotificationDetails(
+          'dhav_incoming_orders',
+          'Incoming Orders',
+          channelDescription: 'High-priority alerts for new orders',
+          importance: Importance.max,
+          priority: Priority.max,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.call,
+          visibility: NotificationVisibility.public,
+          playSound: true,
+          sound: RawResourceAndroidNotificationSound('order_alert'),
+          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+        )
+      : const AndroidNotificationDetails(
+          'dhav_delivery_alerts',
+          'Delivery Alerts',
+          channelDescription: 'Alerts for delivery assignments and other updates',
+          importance: Importance.high,
+          priority: Priority.high,
+          visibility: NotificationVisibility.public,
+          playSound: true,  // system default notification sound
+        );
+
   await localNotifs.show(
     data['order_id'].hashCode,
     title,
     body,
-    const NotificationDetails(android: androidDetails),
+    NotificationDetails(android: androidDetails),
     payload: data['order_id'],
   );
 }
@@ -83,7 +94,8 @@ class FcmService {
   StreamSubscription<RemoteMessage>? _fgSub;
   StreamSubscription<RemoteMessage>? _openSub;
 
-  static const _channelId = 'dhav_incoming_orders';
+  static const _channelId        = 'dhav_incoming_orders';   // ringtone channel — new orders only
+  static const _deliveryChannelId = 'dhav_delivery_alerts';   // quiet channel — delivery & other
   static const _alertSound = RawResourceAndroidNotificationSound('order_alert');
 
   Future<void> init() async {
@@ -158,8 +170,10 @@ class FcmService {
     // Delete before recreating — Android never updates sound on an existing
     // channel, so we force a fresh channel every cold start.
     await androidPlugin?.deleteNotificationChannel(_channelId);
+    await androidPlugin?.deleteNotificationChannel(_deliveryChannelId);
 
-    final channel = AndroidNotificationChannel(
+    // Ringtone channel — only used for new_order alerts.
+    final orderChannel = AndroidNotificationChannel(
       _channelId,
       'Incoming Orders',
       description: 'High-priority alerts for new orders',
@@ -170,7 +184,19 @@ class FcmService {
       // ringtone volume + bypass silent / DND — same as an incoming call.
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     );
-    await androidPlugin?.createNotificationChannel(channel);
+    await androidPlugin?.createNotificationChannel(orderChannel);
+
+    // Quiet channel — delivery assignments and other non-order notifications.
+    // Uses system default sound at notification volume (no ringtone override).
+    final deliveryChannel = AndroidNotificationChannel(
+      _deliveryChannelId,
+      'Delivery Alerts',
+      description: 'Alerts for delivery assignments and other updates',
+      importance: Importance.high,
+      playSound: true,   // system default sound, not order_alert
+      enableVibration: true,
+    );
+    await androidPlugin?.createNotificationChannel(deliveryChannel);
   }
 
   void _handleMessage(RemoteMessage message) {
@@ -259,38 +285,31 @@ class FcmService {
     Map<String, String> data, {
     RemoteNotification? notif,
   }) async {
-    try {
-      await _player.play(AssetSource('sounds/order_alert.mp3'),
-          volume: 1.0, mode: PlayerMode.mediaPlayer);
-    } catch (e) {
-      if (kDebugMode) print('delivery alert sound failed: $e');
-    }
+    // No order_alert ringtone for delivery — just a short vibration.
     try {
       final hasVib = await Vibration.hasVibrator();
       if (hasVib == true) {
         Vibration.vibrate(
-            pattern: [0, 400, 200, 400], intensities: [0, 255, 0, 255]);
+            pattern: [0, 300, 150, 300], intensities: [0, 180, 0, 180]);
       }
     } catch (_) {}
 
-    final androidDetails = AndroidNotificationDetails(
-      _channelId,
-      'Incoming Orders',
-      channelDescription: 'High-priority alerts for new orders',
-      importance: Importance.max,
-      priority: Priority.max,
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.call,
+    // Use the quiet delivery channel — system default sound, normal priority,
+    // no full-screen intent, no ringtone override.
+    const androidDetails = AndroidNotificationDetails(
+      _deliveryChannelId,
+      'Delivery Alerts',
+      channelDescription: 'Alerts for delivery assignments and other updates',
+      importance: Importance.high,
+      priority: Priority.high,
       visibility: NotificationVisibility.public,
-      playSound: true,
-      sound: _alertSound,
-      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+      playSound: true,   // system default notification sound
     );
     await _localNotifs.show(
       data['order_id'].hashCode,
       notif?.title ?? 'New Delivery Assignment!',
       notif?.body ?? 'You have a new delivery assignment',
-      NotificationDetails(android: androidDetails),
+      const NotificationDetails(android: androidDetails),
       payload: data['order_id'],
     );
   }

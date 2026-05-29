@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -784,6 +785,9 @@ class _EditStoreSheetState extends State<_EditStoreSheet> {
   bool _fetchingGps = false;
   bool _saving = false;
 
+  GoogleMapController? _mapController;
+  late LatLng _pickedLatLng;
+
   @override
   void initState() {
     super.initState();
@@ -796,6 +800,7 @@ class _EditStoreSheetState extends State<_EditStoreSheet> {
     _lngCtrl = TextEditingController(text: s.location.lng.toStringAsFixed(6));
     _openTime = _parseTime(s.operatingHours?.open ?? '09:00');
     _closeTime = _parseTime(s.operatingHours?.close ?? '22:00');
+    _pickedLatLng = LatLng(s.location.lat, s.location.lng);
   }
 
   @override
@@ -806,6 +811,7 @@ class _EditStoreSheetState extends State<_EditStoreSheet> {
     _addressCtrl.dispose();
     _latCtrl.dispose();
     _lngCtrl.dispose();
+    _mapController?.dispose();
     super.dispose();
   }
 
@@ -858,8 +864,11 @@ class _EditStoreSheetState extends State<_EditStoreSheet> {
           accuracy: LocationAccuracy.high,
         ),
       );
+      final newLatLng = LatLng(pos.latitude, pos.longitude);
       _latCtrl.text = pos.latitude.toStringAsFixed(6);
       _lngCtrl.text = pos.longitude.toStringAsFixed(6);
+      setState(() => _pickedLatLng = newLatLng);
+      _mapController?.animateCamera(CameraUpdate.newLatLng(newLatLng));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -869,6 +878,12 @@ class _EditStoreSheetState extends State<_EditStoreSheet> {
     } finally {
       if (mounted) setState(() => _fetchingGps = false);
     }
+  }
+
+  void _onMarkerDragged(LatLng pos) {
+    setState(() => _pickedLatLng = pos);
+    _latCtrl.text = pos.latitude.toStringAsFixed(6);
+    _lngCtrl.text = pos.longitude.toStringAsFixed(6);
   }
 
   Future<void> _save() async {
@@ -1045,6 +1060,39 @@ class _EditStoreSheetState extends State<_EditStoreSheet> {
                       maxLines: 2,
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: 200,
+                        child: GoogleMap(
+                          initialCameraPosition: CameraPosition(
+                            target: _pickedLatLng,
+                            zoom: 16,
+                          ),
+                          onMapCreated: (controller) =>
+                              _mapController = controller,
+                          markers: {
+                            Marker(
+                              markerId: const MarkerId('store'),
+                              position: _pickedLatLng,
+                              draggable: true,
+                              onDragEnd: _onMarkerDragged,
+                              icon: BitmapDescriptor.defaultMarkerWithHue(
+                                  BitmapDescriptor.hueOrange),
+                            ),
+                          },
+                          myLocationButtonEnabled: false,
+                          zoomControlsEnabled: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Drag the pin to set exact store location',
+                      style: GoogleFonts.inter(
+                          fontSize: 11, color: c.textHint),
                     ),
                     const SizedBox(height: 14),
                     Row(

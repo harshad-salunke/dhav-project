@@ -182,10 +182,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(color: c.card, borderRadius: BorderRadius.circular(20)),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 44,
-            backgroundColor: c.iconBg,
-            child: Icon(Icons.store_rounded, color: c.textSecondary, size: 44),
+          Stack(
+            children: [
+              CircleAvatar(
+                radius: 44,
+                backgroundColor: c.iconBg,
+                child: Icon(Icons.store_rounded, color: c.textSecondary, size: 44),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, AppRoutes.storeProfile),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: c.card, width: 2),
+                    ),
+                    child: const Icon(Icons.edit_rounded,
+                        color: Colors.white, size: 14),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           Text(store?.shopName ?? 'Store',
