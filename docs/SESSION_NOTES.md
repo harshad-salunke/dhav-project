@@ -39,11 +39,46 @@
 
 ## 🔖 CURRENT STATUS (Always update this at top)
 
-**Current Phase:** Phase 8 — System Design Improvements — Phase A COMPLETE ✅
-**Last task completed:** Phase A all 4 quick wins implemented (2026-05-29).
-**Next task to do:** Phase B — Redis shared cache (optional, only needed when scaling to multiple workers). OR skip to Phase 7 deployment (Railway backend deploy).
-**Also pending from Phase 7:** Deploy backend to Railway + smoke test.
+**Current Phase:** Phase 7 DEPLOYMENT COMPLETE ✅ + Phase 8-A COMPLETE ✅
+**Last task completed:** Backend deployed to Railway, both APKs built (2026-05-29).
+**Next task to do:** Phase 7.3 — Pre-launch pilot: onboard 3 test stores in Kothrud, run 10 end-to-end orders.
+**Production URL:** https://dhav-backend-production.up.railway.app
 **Last updated:** 2026-05-29
+
+---
+
+## Session 2026-05-29 #2 — Deployment + APK Builds
+
+**Current Phase:** Phase 7 Deployment + Phase 8-A
+**Files committed:**
+- `backend/services/cache.py` — TTLCache (Phase A)
+- `backend/main.py` + `backend/routers/catalog.py` — GZIP + cache + async reads (Phase A)
+- `store_app/lib/core/services/fcm_service.dart` — dual FCM channels
+- `store_app/lib/features/profile/profile_screen.dart` — edit button on avatar
+- `store_app/lib/features/store/store_profile_screen.dart` — Google Maps pin-drag for location
+
+**What was done:**
+- Committed Phase A backend improvements + store_app UX improvements
+- Deployed backend to Railway (deployment ID: a591497d) — LIVE ✅
+- Smoke tested `/health`, `/catalog/categories`, `/catalog/items` — all 200 OK
+- Built customer_app release APK: **57.2 MB** ✅
+- Built store_app release APK: **56.6 MB** ✅
+
+**Production URL:** https://dhav-backend-production.up.railway.app
+**Both apps already point to this URL** (hardcoded in api_config.dart)
+
+### NEXT TIME — START HERE:
+**Phase 7.3 — Pre-launch Pilot**
+1. Install store_app APK on a real Android device (from `store_app/build/app/outputs/flutter-apk/app-release.apk`)
+2. Install customer_app APK on another device (from `customer_app/build/app/outputs/flutter-apk/app-release.apk`)
+3. Use Railway dashboard to verify env vars are set (Firebase keys, etc.)
+4. Smoke test full flow:
+   - Admin: onboard a test store via admin dashboard
+   - Store: Login on store APK → see dashboard
+   - Customer: Login on customer APK → Home → Add items → Place order
+   - Store: Receive FCM popup → Accept → Pack → Dispatch → Mark Delivered
+   - Customer: See OrderDelivered screen → Rate
+5. Fix any bugs found before soft launch
 
 ---
 

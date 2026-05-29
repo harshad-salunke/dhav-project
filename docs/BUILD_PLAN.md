@@ -365,11 +365,11 @@
 
 ### 7.2 Deployment
 
-- [ ] Backend deployed (note URL)
-- [ ] Admin dashboard deployed
-- [ ] Customer app APK built
-- [ ] Store app APK built
-- [ ] Update apps to point to production backend URL
+- [x] Backend deployed — https://dhav-backend-production.up.railway.app (Railway, SFO region)
+- [ ] Admin dashboard deployed (Firebase Hosting)
+- [x] Customer app APK built — 57.2 MB (2026-05-29)
+- [x] Store app APK built — 56.6 MB (2026-05-29)
+- [x] Both apps point to production backend URL (hardcoded in api_config.dart)
 
 ### 7.3 Pre-Launch Pilot
 - [ ] Personally onboard 3 test stores in Kothrud
