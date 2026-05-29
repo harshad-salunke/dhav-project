@@ -16,8 +16,33 @@
 - [x] Phase 5: Live Location + Delivery Boy (Week 8-9)
 - [x] Phase 6: Admin Dashboard (Week 9-11)
 - [ ] Phase 7: Testing + Deployment (Week 11-12)
+- [ ] Phase 8: System Design Improvements — Performance (ADDED 2026-05-28)
 
 **Total estimated time:** 12 weeks for solo developer
+
+---
+
+## PHASE 8 — SYSTEM DESIGN IMPROVEMENTS (Performance)
+
+> Reference: docs/SYSTEM_DESIGN_NOTES.md (concepts + teaching)
+> Reference: docs/SYSTEM_DESIGN_IMPLEMENTATION.md (what's done + what's next)
+
+### Phase A — Quick Wins (Zero new services needed)
+- [x] A.1 — In-memory TTL cache for catalog (`backend/services/cache.py`)
+- [x] A.2 — Async concurrent Firebase reads (replace N+1 loops)
+- [x] A.3 — GZIP response compression (1 line in main.py)
+- [x] A.4 — Background cache warming on server startup
+
+### Phase B — Redis Shared Cache (When scaling to multiple workers)
+- [ ] B.1 — Add Redis service (Railway free tier)
+- [ ] B.2 — Cache invalidation on catalog updates
+
+### Phase C — CDN + Image Optimization
+- [ ] C.1 — Firebase Storage CDN Cache-Control headers
+- [ ] C.2 — Thumbnail URLs for catalog items
+
+### Phase D — Database Evolution (Future, 100+ stores)
+- [ ] D.1 — PostgreSQL for catalog + orders (Supabase free tier)
 
 ---
 
@@ -41,10 +66,6 @@
 - [ ] Install VSCode + Flutter + Python extensions
 - [ ] Install Android Studio (for emulator)
 
-### 0.3 Claude CLI Setup
-- [ ] Install Claude CLI: follow https://docs.claude.com/claude-code
-- [ ] Inside root project folder, run: `claude`
-- [ ] When CLI opens, first command should be: "Read all files in /docs and BUILD_PLAN.md. Confirm you understand the project."
 
 **END OF PHASE 0 — You should have empty folders ready, all accounts created, and Claude CLI working.**
 
@@ -69,8 +90,7 @@
 - [ ] Deploy: `firebase deploy --only storage`
 
 ### 1.3 Initial Data Seeding (with Claude CLI)
-**Claude CLI prompt:**
-> "Create a Python script `backend/scripts/seed_catalog.py` that seeds the Firebase Realtime Database with 50 common kirana items across categories: Grains, Oil & Ghee, Dairy, Snacks, Personal Care, Cleaning, Baby Care. Each item should have name, name_hindi, name_marathi, category, unit, and image_url. Use placeholder images for now."
+
 
 - [ ] Run the seed script
 - [ ] Verify 50 items appear in Firebase Console
@@ -82,8 +102,6 @@
 ## PHASE 2 — FASTAPI BACKEND CORE (Week 2-4)
 
 ### 2.1 Project Skeleton
-**Claude CLI prompt:**
-> "Read PRD Section 16 (Folder Structure). Create the complete FastAPI backend skeleton in `backend/` with all folders, empty Python files, requirements.txt, and config.py. Use Pydantic v2 models. Initialize Firebase Admin SDK in firebase_init.py."
 
 - [x] All folders/files created
 - [x] `requirements.txt` includes: fastapi, uvicorn, firebase-admin, pygeohash, apscheduler, websockets, python-dotenv, pytest
@@ -92,8 +110,6 @@
 - [x] `uvicorn main:app --reload` runs without error
 
 ### 2.2 Authentication Layer
-**Claude CLI prompt:**
-> "Implement `backend/routers/auth.py` with POST /auth/verify-token endpoint. Use Firebase Admin SDK to verify Firebase ID token from Authorization header. Return user role (customer/store/delivery_boy/admin) by looking up the UID in the database."
 
 - [x] Token verification works
 - [x] Role detection works
@@ -280,8 +296,6 @@
 ## PHASE 5 — DELIVERY BOY VIEW (Week 8-9)
 
 ### 5.1 Delivery Boy Mode in Store App
-**Claude CLI prompt:**
-> "Read PRD Section 6B thoroughly. Inside the same store_app, add delivery boy role views: Home screen with available toggle, incoming assignment popup, active delivery screen with Google Map + option to launch external Google Maps, mark delivered."
 
 - [x] Role detection works on login (SplashScreen routes delivery → DeliveryHomeScreen)
 - [x] Delivery boy ONLY sees delivery screens, never store data
@@ -350,8 +364,6 @@
 - [ ] End-to-end test all 15 Use Cases from PRD Section 26
 
 ### 7.2 Deployment
-**Claude CLI prompt:**
-> "Read PRD Section 25. Help me deploy: 1) Backend to Railway.app with all environment variables 2) Admin dashboard to Firebase Hosting 3) Customer + Store apps build APK release"
 
 - [ ] Backend deployed (note URL)
 - [ ] Admin dashboard deployed
@@ -372,44 +384,5 @@
 - [ ] Daily standup with yourself — what worked, what broke
 
 **END OF PHASE 7 — DHAV is LIVE in Kothrud, Pune! 🎉**
-
 ---
 
-## 📌 HOW TO WORK WITH CLAUDE CLI EVERY DAY
-
-### Starting a Session:
-1. Open terminal in project root
-2. Run: `claude`
-3. First prompt: **"Read docs/BUILD_PLAN.md and docs/SESSION_NOTES.md. Tell me where I stopped and what to do next."**
-4. Claude will see your progress and continue from there
-
-### During a Session:
-- Work on ONE task at a time (one checkbox)
-- After each task: ask Claude to **"Update BUILD_PLAN.md to mark [task] as complete"**
-- If you get stuck, write the issue in SESSION_NOTES.md
-
-### Ending a Session:
-- Always ask Claude: **"Update SESSION_NOTES.md with what we did today, what's blocking, and exactly where to resume tomorrow"**
-- Commit code to Git: `git add . && git commit -m "Phase X.Y complete"`
-- Push to GitHub: `git push`
-
-### If Token Limit Hits Mid-Session:
-- Claude CLI session ends → no problem
-- Start fresh session next day
-- Your code is on disk, BUILD_PLAN.md and SESSION_NOTES.md tell Claude where you were
-- Just re-prompt: "Read BUILD_PLAN.md and SESSION_NOTES.md, continue from where we stopped"
-
----
-
-## 🚨 GOLDEN RULES
-
-1. **NEVER skip phases.** Backend must work before Flutter apps. Don't build UI for APIs that don't exist.
-2. **ONE feature at a time.** Don't ask Claude to build 5 screens in one prompt — break it down.
-3. **TEST as you build.** Don't write all code then test at the end.
-4. **COMMIT often.** After every working feature: `git commit`. Easy rollback if something breaks.
-5. **WRITE in SESSION_NOTES.md.** This is your memory across days. Treat it as your dev journal.
-6. **READ the PRD section** before asking Claude to build that part. Reference the section number in your prompt.
-
----
-
-*This BUILD_PLAN is your single source of truth. Update it as you build. Good luck! 🚀*
