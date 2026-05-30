@@ -366,7 +366,7 @@
 ### 7.2 Deployment
 
 - [x] Backend deployed — https://dhav-backend-production.up.railway.app (Railway, SFO region)
-- [ ] Admin dashboard deployed (Firebase Hosting)
+- [x] Admin dashboard deployed (Firebase Hosting) — https://dhav-quick-commerce.web.app (2026-05-29)
 - [x] Customer app APK built — 57.2 MB (2026-05-29)
 - [x] Store app APK built — 56.6 MB (2026-05-29)
 - [x] Both apps point to production backend URL (hardcoded in api_config.dart)

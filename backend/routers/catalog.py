@@ -8,7 +8,7 @@ from models.catalog import CatalogItem, CatalogItemCreateRequest
 from models.user import TokenVerifyResponse
 from dependencies import get_current_user, require_role
 from services.geofencing import find_nearby_stores, find_all_stores_in_radius
-from services.cache import catalog_cache, CATALOG_TTL, CATEGORY_TTL
+from services.cache import catalog_cache, CATALOG_TTL, CATEGORY_TTL, STORE_NODE_TTL
 from utils.helpers import new_id
 
 router = APIRouter()
@@ -25,6 +25,17 @@ def _fb_get(path: str):
 async def _async_fb_get(path: str):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_pool, _fb_get, path)
+
+
+async def _get_store_node(store_id: str) -> dict:
+    """Return store node, served from cache when warm."""
+    cache_key = f"store:{store_id}"
+    cached = catalog_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = await _async_fb_get(f"stores/{store_id}") or {}
+    catalog_cache.set(cache_key, data, ttl=STORE_NODE_TTL)
+    return data
 
 
 async def _get_catalog_node() -> dict:
@@ -81,7 +92,7 @@ async def get_nearby_stores_list(
     stores = find_nearby_stores(lat, lng, radius_km)
 
     async def _enrich(s):
-        store_node = await _async_fb_get(f"stores/{s['store_id']}") or {}
+        store_node = await _get_store_node(s["store_id"])
         return {
             "store_id": s["store_id"],
             "name": store_node.get("shop_name") or store_node.get("name") or "Kirana Store",
@@ -107,7 +118,7 @@ async def get_all_nearby_stores(
     stores = find_all_stores_in_radius(lat, lng, radius_km)
 
     async def _enrich(s):
-        store_node = await _async_fb_get(f"stores/{s['store_id']}") or {}
+        store_node = await _get_store_node(s["store_id"])
         return {
             "store_id": s["store_id"],
             "name": store_node.get("shop_name") or store_node.get("name") or "Kirana Store",
@@ -127,7 +138,7 @@ async def get_all_nearby_stores(
 @router.get("/stores/{store_id}")
 async def get_store_catalog(store_id: str):
     """Public: returns store profile + all catalog items available at that store."""
-    store_node = await _async_fb_get(f"stores/{store_id}")
+    store_node = await _get_store_node(store_id)
     if not store_node:
         raise HTTPException(status_code=404, detail="Store not found")
 
@@ -181,9 +192,9 @@ async def get_nearby_items(
     if not nearby_stores:
         return {"items": [], "stores_found": 0}
 
-    # Concurrent reads for all nearby store nodes
+    # Concurrent reads — served from cache when warm
     store_nodes = await asyncio.gather(
-        *[_async_fb_get(f"stores/{s['store_id']}") for s in nearby_stores]
+        *[_get_store_node(s["store_id"]) for s in nearby_stores]
     )
 
     available_item_ids: set[str] = set()

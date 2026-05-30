@@ -72,39 +72,37 @@ class CatalogProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Always load full catalog + categories
-      final baseResults = await Future.wait([
+      final hasLoc = _lat != null && _lng != null;
+      final futures = [
         ApiClient.get('/catalog/items'),
         ApiClient.get('/catalog/categories'),
-      ]);
+        if (hasLoc) ApiClient.get('/catalog/items/nearby?lat=$_lat&lng=$_lng&radius_km=3'),
+        if (hasLoc) ApiClient.get('/catalog/stores/nearby?lat=$_lat&lng=$_lng&radius_km=3'),
+        if (hasLoc) ApiClient.get('/catalog/stores/nearby/all?lat=$_lat&lng=$_lng&radius_km=3'),
+      ];
 
-      if (baseResults[0].statusCode == 200) {
-        final body = jsonDecode(baseResults[0].body) as Map<String, dynamic>;
+      // All requests fire in parallel — one network round trip instead of two
+      final results = await Future.wait(futures);
+
+      if (results[0].statusCode == 200) {
+        final body = jsonDecode(results[0].body) as Map<String, dynamic>;
         final data = body['items'] as List? ?? [];
         _allItems = data
             .map((e) => CatalogItem.fromJson(e as Map<String, dynamic>))
             .toList();
       }
 
-      if (baseResults[1].statusCode == 200) {
-        final body = jsonDecode(baseResults[1].body) as Map<String, dynamic>;
+      if (results[1].statusCode == 200) {
+        final body = jsonDecode(results[1].body) as Map<String, dynamic>;
         final data = body['categories'] as List? ?? [];
         _categories = data
             .map((e) => CatalogCategory(id: e.toString(), name: e.toString()))
             .toList();
       }
 
-      // When location is known, load nearby availability + store list
-      if (_lat != null && _lng != null) {
-        final nearbyResults = await Future.wait([
-          ApiClient.get('/catalog/items/nearby?lat=$_lat&lng=$_lng&radius_km=3'),
-          ApiClient.get('/catalog/stores/nearby?lat=$_lat&lng=$_lng&radius_km=3'),
-          ApiClient.get('/catalog/stores/nearby/all?lat=$_lat&lng=$_lng&radius_km=3'),
-        ]);
-
-        if (nearbyResults[0].statusCode == 200) {
-          final body =
-              jsonDecode(nearbyResults[0].body) as Map<String, dynamic>;
+      if (hasLoc) {
+        if (results[2].statusCode == 200) {
+          final body = jsonDecode(results[2].body) as Map<String, dynamic>;
           final data = body['items'] as List? ?? [];
           _nearbyItemIds = data
               .map((e) =>
@@ -114,9 +112,8 @@ class CatalogProvider extends ChangeNotifier {
           _storesFound = (body['stores_found'] as int?) ?? 0;
         }
 
-        if (nearbyResults[1].statusCode == 200) {
-          final body =
-              jsonDecode(nearbyResults[1].body) as Map<String, dynamic>;
+        if (results[3].statusCode == 200) {
+          final body = jsonDecode(results[3].body) as Map<String, dynamic>;
           final data = body['stores'] as List? ?? [];
           _nearbyStores = List<Map<String, dynamic>>.from(data);
           if (_storesFound == 0) {
@@ -124,9 +121,8 @@ class CatalogProvider extends ChangeNotifier {
           }
         }
 
-        if (nearbyResults[2].statusCode == 200) {
-          final body =
-              jsonDecode(nearbyResults[2].body) as Map<String, dynamic>;
+        if (results[4].statusCode == 200) {
+          final body = jsonDecode(results[4].body) as Map<String, dynamic>;
           final data = body['stores'] as List? ?? [];
           _allNearbyStores = List<Map<String, dynamic>>.from(data);
         }

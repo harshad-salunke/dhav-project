@@ -25,7 +25,7 @@ class ApiClient {
       if (user == null) {
         throw ApiException(401, 'Not signed in');
       }
-      final token = await user.getIdToken(true); // forceRefresh — prevents 401 on expired tokens
+      final token = await user.getIdToken(); // SDK auto-refreshes near expiry; force-refresh was adding 300ms per call
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;

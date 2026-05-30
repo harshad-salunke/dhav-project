@@ -7,6 +7,7 @@ class AddressProvider extends ChangeNotifier {
   List<SavedAddress> _addresses = [];
   SavedAddress? _selected;
   bool _loading = false;
+  bool _loadedOnce = false;
   String? _error;
 
   List<SavedAddress> get addresses => List.unmodifiable(_addresses);
@@ -14,7 +15,8 @@ class AddressProvider extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
 
-  Future<void> loadAddresses() async {
+  Future<void> loadAddresses({bool force = false}) async {
+    if (_loadedOnce && !force) return; // already in memory — skip the network call
     _loading = true;
     notifyListeners();
     try {
@@ -31,6 +33,7 @@ class AddressProvider extends ChangeNotifier {
         if (_selected == null && _addresses.isNotEmpty) {
           _selected = _addresses.first;
         }
+        _loadedOnce = true;
       }
     } catch (e) {
       _error = e.toString();
@@ -45,7 +48,7 @@ class AddressProvider extends ChangeNotifier {
       final resp =
           await ApiClient.post('/customers/me/addresses', address.toJson());
       if (resp.statusCode == 200 || resp.statusCode == 201) {
-        await loadAddresses();
+        await loadAddresses(force: true);
         if (_addresses.isNotEmpty) {
           _selected = _addresses.last;
           notifyListeners();
@@ -69,7 +72,7 @@ class AddressProvider extends ChangeNotifier {
           await ApiClient.delete('/customers/me/addresses/$index');
       if (resp.statusCode == 200) {
         if (wasSelectedIndex) _selected = null;
-        await loadAddresses();
+        await loadAddresses(force: true);
         if (_selected == null && _addresses.isNotEmpty) {
           _selected = _addresses.first;
         }
@@ -91,7 +94,7 @@ class AddressProvider extends ChangeNotifier {
             _selected!.lat == _addresses[index].lat &&
             _selected!.lng == _addresses[index].lng &&
             _selected!.flatBuilding == _addresses[index].flatBuilding;
-        await loadAddresses();
+        await loadAddresses(force: true);
         if (wasSelected && index < _addresses.length) {
           _selected = _addresses[index];
           notifyListeners();

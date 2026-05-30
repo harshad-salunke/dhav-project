@@ -40,16 +40,11 @@ DHAVl-project/
 1. Read `docs/PRD.md` — understand WHAT we're building
 2. Read `docs/BUILD_PLAN.md` — understand HOW we're building it
 3. Follow Phase 0 in BUILD_PLAN.md to set up environment
-4. Open Claude CLI: `claude`
-5. First prompt: *"Read docs/PRD.md and docs/BUILD_PLAN.md. Confirm understanding."*
 
 ### Every Day After
 1. Open `docs/SESSION_NOTES.md` — see where you stopped
-2. Open Claude CLI in project root
-3. Prompt: *"Read docs/BUILD_PLAN.md and docs/SESSION_NOTES.md. Continue from where I stopped."*
-4. Work on ONE task at a time
-5. Before closing: *"Update SESSION_NOTES.md with today's progress and next steps"*
-6. `git commit -m "..."` and push
+2. Work on ONE task at a time
+3. Before closing: *"Update SESSION_NOTES.md with today's progress and next steps"*
 
 ---
 
@@ -101,14 +96,6 @@ See `docs/ARCHITECTURE.md` for full deep dive.
 
 ---
 
-## 🎯 Current Phase
-
-**Phase 0 — Project Setup**
-
-See `docs/BUILD_PLAN.md` for full 7-phase roadmap.
-
----
-
 ## 🔐 Security Notes
 
 - All writes to critical data go through FastAPI — NEVER direct Firebase writes from Flutter
@@ -124,8 +111,6 @@ See `docs/BUILD_PLAN.md` for full 7-phase roadmap.
 For questions during development:
 1. Check `docs/PRD.md` Section 26 (Use Cases)
 2. Check `docs/SESSION_NOTES.md` (your past notes)
-3. Ask Claude CLI with the specific PRD section number
-
 ---
 
 ## 📜 License

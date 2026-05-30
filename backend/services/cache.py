@@ -37,5 +37,7 @@ class TTLCache:
 # Module-level singleton — imported by routers
 catalog_cache = TTLCache()
 
-CATALOG_TTL = 300   # 5 minutes
-CATEGORY_TTL = 600  # 10 minutes (categories change rarely)
+CATALOG_TTL = 300      # 5 minutes
+CATEGORY_TTL = 600     # 10 minutes (categories change rarely)
+STORE_NODE_TTL = 120   # 2 minutes (store name/location rarely changes mid-session)
+USER_PROFILE_TTL = 120 # 2 minutes (role/active status rarely changes mid-session)

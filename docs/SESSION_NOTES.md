@@ -40,10 +40,43 @@
 ## 🔖 CURRENT STATUS (Always update this at top)
 
 **Current Phase:** Phase 7 DEPLOYMENT COMPLETE ✅ + Phase 8-A COMPLETE ✅
-**Last task completed:** Backend deployed to Railway, both APKs built (2026-05-29).
-**Next task to do:** Phase 7.3 — Pre-launch pilot: onboard 3 test stores in Kothrud, run 10 end-to-end orders.
+**Last task completed:** Admin dashboard deployed to Firebase Hosting (2026-05-29).
+**Next task to do:** Phase 7.3 — Pre-launch pilot: install APKs on real devices, onboard 3 test stores via admin dashboard, run 10 end-to-end orders.
 **Production URL:** https://dhav-backend-production.up.railway.app
+**Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅
 **Last updated:** 2026-05-29
+
+---
+
+## Session 2026-05-29 #3 — Admin Dashboard Web Build
+
+**Current Phase:** Phase 7 — Admin Dashboard Hosting Setup
+**Files added:**
+- `admin_dashboard/firebase.json` — Firebase Hosting config (public: build/web, SPA rewrites, cache headers)
+- `admin_dashboard/.firebaserc` — links to `dhav-quick-commerce` Firebase project
+
+**What was done:**
+- Created `firebase.json` with hosting config: points to `build/web`, SPA rewrite for Flutter routing, long-cache headers for JS/CSS/WASM, no-cache for index.html
+- Created `.firebaserc` pointing to `dhav-quick-commerce`
+- Ran `flutter build web --release` — **BUILD SUCCEEDED** (139s build time)
+- Ran `firebase deploy --only hosting` — **DEPLOYED** ✅
+- Admin dashboard live at: https://dhav-quick-commerce.web.app
+
+**Build warnings (non-blocking):**
+- Deprecated service worker in index.html (cosmetic, doesn't affect function)
+- `dart:html` in `store_onboard_screen.dart` + `coverage_screen.dart` — only blocks WASM build, JS build is fine
+- Missing CupertinoIcons font in pubspec (minor, no visible impact)
+
+### NEXT TIME — START HERE:
+**Phase 7.3 — Pre-launch Pilot:**
+1. Open admin dashboard: https://dhav-quick-commerce.web.app → login with admin Firebase account
+2. Onboard a test store: Stores → Onboard Store → fill name/area/lat/lng/email/password
+3. Install store_app APK on a real Android device — log in with the store credentials just created
+4. Install customer_app APK on another device — log in with Google or Email
+5. Customer: Browse → add items → Place Order
+6. Store: receive FCM popup → Accept → Pack → Dispatch → Mark Delivered
+7. Customer: see OrderDelivered screen → Rate
+8. Admin dashboard: verify order appears in Orders table
 
 ---
 
