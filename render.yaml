@@ -1,0 +1,44 @@
+# Render Blueprint for the DHAV FastAPI backend.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# This deploys ONLY the FastAPI app. The database stays on Supabase (free)
+# and Redis is optional (the app falls back to single-worker mode if unset).
+#
+# To use: push this file, then on Render go to New > Blueprint and pick this repo.
+# Render reads this file, creates the service, and prompts you for the secret
+# values marked `sync: false` below.
+
+services:
+  - type: web
+    name: dhav-backend
+    runtime: python
+    plan: free                 # free tier — sleeps after 15 min idle, no credit card
+    rootDir: backend           # the FastAPI app lives in backend/
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Pin Python to match the local dev version (asyncpg 0.29 supports 3.11/3.12)
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # ── Secrets: you paste these in the Render dashboard (never committed) ──
+      # Supabase transaction-mode pooler URL (port 6543) — used for all queries
+      - key: DATABASE_URL
+        sync: false
+      # Supabase session-mode pooler URL (port 5432) — used for migrations/DDL
+      - key: DIRECT_URL
+        sync: false
+      # Full Firebase service-account JSON as a single-line string
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      # Supabase service_role key (Dashboard > Settings > API)
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # Optional — leave blank to run single-worker (Redis bus auto-disables)
+      - key: REDIS_URL
+        sync: false
+
+      # ── Non-secret config (matches config.py defaults; override if needed) ──
+      - key: FIREBASE_PROJECT_ID
+        value: dhav-quick-commerce
