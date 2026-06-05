@@ -39,12 +39,102 @@
 
 ## 🔖 CURRENT STATUS (Always update this at top)
 
-**Current Phase:** Phase 7 DEPLOYMENT COMPLETE ✅ + Phase 8-A COMPLETE ✅
-**Last task completed:** Admin dashboard deployed to Firebase Hosting (2026-05-29).
-**Next task to do:** Phase 7.3 — Pre-launch pilot: install APKs on real devices, onboard 3 test stores via admin dashboard, run 10 end-to-end orders.
-**Production URL:** https://dhav-backend-production.up.railway.app
+**Current Phase:** Phase 7 DEPLOYMENT ✅ + Phase 8-A ✅ + Phase 8-A+ (Production Scaling) ✅
+**Last task completed:** Migrated backend hosting Railway → **Render** (free tier, no credit card). Live & healthy (2026-06-05).
+**Next task to do:** Update Flutter apps' API base URL (Railway → Render URL) in customer_app / admin_dashboard, rebuild APKs. Then Phase 7.3 pilot.
+**Production URL:** https://dhav-backend.onrender.com  ⚠️ (was Railway — verify exact URL in Render dashboard if it has a suffix)
 **Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅
-**Last updated:** 2026-05-29
+**Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
+**Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
+**Last updated:** 2026-06-05
+
+---
+
+## Session 2026-06-05 — Hosting migration: Railway → Render (free)
+
+**Current Phase:** Phase 7 DEPLOYMENT (ops)
+**Why:** Railway's free tier became a paid trial after 1 month. Moved to Render's
+genuinely-free tier (no credit card) to avoid spending money during the pilot.
+
+### What I did:
+- Added [render.yaml](../render.yaml) blueprint at repo root — deploys `backend/` as a
+  free Python web service. Secrets marked `sync: false` (pasted in dashboard, not committed).
+- Deployed on Render via New → Blueprint. Build succeeded; app starts and `/health` returns 200.
+- Rewrote `backend/deployment_step.md` for Render (was the Railway guide).
+
+### What worked:
+- App needed **zero code changes** — it already reads `FIREBASE_SERVICE_ACCOUNT_JSON` and
+  `$PORT` from env. Database stays on Supabase; Redis stays optional.
+- **New deploy workflow is just `git push origin main`** — Render auto-deploys from GitHub.
+
+### What broke / blockers:
+- First deploy crashed: `json.JSONDecodeError: Extra data` — the Firebase JSON env var was
+  **pasted twice** into Render. Fix: clear the field, paste once. (File itself is a clean
+  2372-char single-line JSON.) Documented in deployment_step.md → Common Errors.
+
+### Free-tier caveat to remember:
+- Render free service **sleeps after 15 min idle** (~1 min cold start; WS drop + scheduler
+  pauses while asleep). Keep warm with a cron-job.org pinger on `/health` for demos.
+
+### NEXT TIME — START HERE:
+Point the Flutter apps at the new Render URL. Search customer_app/ and admin_dashboard/ for
+the old `dhav-backend-production.up.railway.app` base URL and replace with the Render URL,
+then rebuild. Prompt: "Update the API base URL in the Flutter apps from the Railway URL to
+the Render URL and rebuild the customer APK."
+
+---
+
+## Session 2026-05-30 — Phase A+ Production Scaling (backend) + Push-driven UI
+
+**Current Phase:** Phase 8-A+ — System design / scaling
+**Goal:** Make the WHOLE app production-grade for many concurrent users (not just catalog).
+Mode: implement-first, explain-after. All concepts taught in `docs/SYSTEM_DESIGN_NOTES.md`
+(Concepts 9–20).
+
+### Files ADDED (backend/)
+- `services/firebase_async.py` — async wrappers (`fb.get/get_many/set/update/delete/query_equal/transaction`) that run blocking Firebase SDK calls on a 32-thread pool so they never freeze the event loop.
+- `services/redis_bus.py` — optional Redis Pub/Sub bus (WS location, cache invalidation, accept signal). Auto-DISABLES when `REDIS_URL` is unset → app runs single-worker exactly as before.
+
+### Files CHANGED (backend/)
+- `services/location_ws.py` — REWRITTEN. Fixed the memory leak (channels now created on first customer, deleted on last-leave / delivery; `close_order_channel` is actually called now). Redis Pub/Sub fan-out across workers + local fallback. Non-blocking auth. Rider GPS throttle (≥1/s) + delta drop.
+- `services/broadcasting.py` — event-driven (asyncio.Event + Redis accept signal) instead of 2s polling; concurrent FCM-token reads; non-blocking I/O; concise `log.info` broadcast diagnostics restored.
+- `services/geofencing.py` — added concurrent `find_nearby_stores_async` / `find_all_stores_in_radius_async` (read all geohash cells at once).
+- `services/cache.py` — bounded `TTLCache(max_size=5000)`; `invalidate()` + `init_invalidation_subscriber()` for cross-worker cache clearing; `clear_prefix`.
+- `routers/orders.py` — all I/O via `fb.*`; accept now calls `signal_order_accepted` + parallel "order taken" token fetch; delivered/failed call `close_order_channel`; **fixed missing `send_new_order_to_stores` import** (latent NameError in `place_direct_order`).
+- `routers/stores.py` — REWRITTEN to `fb.*` (all 30 calls); geofence writes offloaded via `fb.run`; cache invalidation on profile/toggle/inventory edits.
+- `routers/catalog.py` — uses central `firebase_async` + async geofence + Redis-backed `cache.invalidate`.
+- `main.py` — `redis_bus.init_redis()` + `cache.init_invalidation_subscriber()` in lifespan; `logging.basicConfig(INFO)`; closes Redis on shutdown.
+- `config.py` (+`.env.example`) — added optional `REDIS_URL`. `requirements.txt` — added `redis==5.0.7`.
+
+### Files CHANGED (firebase/) — DEPLOYED ✅
+- `realtime-db.json` (+ mirror `.rules`) — fixed/added `.indexOn`:
+  - `orders`: `customer_id`, `accepted_by_store_id`, **`assigned_delivery_boy_id`** (old index wrongly had `delivery_boy_id`, a field that doesn't exist → rider query was full-scanning ALL orders).
+  - added `delivery_boys` + `custom_item_requests` indexed on `store_id`.
+  - **Deployed via `firebase deploy --only database`.**
+
+### Files CHANGED (customer_app/) — needs APK rebuild
+- `core/services/fcm_service.dart` — dead callback → broadcast `Stream<String> orderUpdates`.
+- `features/orders/broadcasting_screen.dart` — reacts to FCM push instantly; poll 4s → 8s fallback.
+- `features/orders/order_tracking_screen.dart` — reacts to FCM push; 8s poll kept as backstop.
+
+### Verification
+- Backend: imports OK (85 routes), `py_compile` OK, **pytest 39/39 PASS** (fixed 2 stale `test_penalties` assertions that hadn't been updated for the `owner_uid` param).
+- customer_app: `flutter analyze` on the 3 changed files → 0 errors/warnings (only pre-existing `withOpacity` infos).
+
+### Docs updated
+- `SYSTEM_DESIGN_NOTES.md` — Concepts 9–20 (workers, blocking event loop, concurrent reads, memory leak, Pub/Sub, Redis-on-Railway, cache invalidation, event-driven broadcast, throttle/delta, bounded cache, Firebase indexOn, push-driven UI) — each with What/Why/Where/Example/Impact/If-not. Standing rule added: every new concept gets documented here.
+- `SYSTEM_DESIGN_IMPLEMENTATION.md` + `BUILD_PLAN.md` — Phase A+ / B marked done.
+
+### IMPORTANT — Redis decision
+Redis code is built but **intentionally OFF** (no `REDIS_URL`). Correct for the pilot.
+**Rule:** no Redis → run **1 worker** only. Turn on later by: add Redis service on Railway → set
+`REDIS_URL` → run `--workers N` → redeploy. No code changes needed.
+
+### NEXT TIME — START HERE
+1. **Redeploy backend:** `cd backend && railway up` (ships async/WS/broadcast/index-aware code). Keep it single-worker (no `--workers`).
+2. **Rebuild customer APK:** `cd customer_app && flutter build apk --release` (ships push-driven UI). Store app unchanged.
+3. Smoke-test: place order → confirm "Accepted" appears within ~1s of store tapping Accept (push-driven), live tracking still works, delivered screen still triggers.
+4. Then continue **Phase 7.3 — Pre-launch pilot** (onboard 3 test stores, 10 end-to-end orders).
 
 ---
 
