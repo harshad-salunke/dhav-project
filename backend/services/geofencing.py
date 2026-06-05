@@ -1,7 +1,17 @@
+"""
+Geofencing via PostgreSQL.
+
+Previous design stored a separate Firebase RTDB node `geofence_index/{geohash}/{store_id}`.
+New design: every store row has a `geohash6` column. Finding nearby stores is a direct
+SQL query — no separate index table needed, and no sync/async split.
+
+index_store_geofence / remove_store_from_geofence_index are kept as no-ops for callers
+that haven't been updated yet; the actual open/closed state is read live from the
+stores table in every query.
+"""
 import math
 
 import pygeohash as geohash
-from firebase_admin import db
 
 from services.geo import haversine_km
 from config import get_settings
@@ -14,83 +24,84 @@ def _encode(lat: float, lng: float) -> str:
     return geohash.encode(lat, lng, precision=PRECISION)
 
 
-def index_store_geofence(store_id: str, lat: float, lng: float,
-                          is_active: bool = True, is_verified: bool = False,
-                          is_suspended: bool = False, zone_id: str = "") -> str:
-    gh = _encode(lat, lng)
-    db.reference(f"geofence_index/{gh}/{store_id}").set({
-        "store_id": store_id,
-        "lat": lat,
-        "lng": lng,
-        "is_active": is_active,
-        "is_verified": is_verified,
-        "is_suspended": is_suspended,
-        "zone_id": zone_id,
-    })
-    return gh
-
-
-def remove_store_from_geofence_index(store_id: str, lat: float, lng: float) -> None:
-    gh = _encode(lat, lng)
-    db.reference(f"geofence_index/{gh}/{store_id}").delete()
-
-
-def _cells_covering_radius(lat: float, lng: float, radius_km: float) -> list:
-    """Return every geohash cell that could contain a store within `radius_km`
-    of (lat, lng). Walks a grid sized to the requested radius, so the caller
-    no longer has to assume a fixed 3x3 block."""
+def _cells_covering_radius(lat: float, lng: float, radius_km: float) -> list[str]:
+    """Return all geohash-6 cells that could contain a store within radius_km."""
     center = _encode(lat, lng)
     _, _, lat_err, lng_err = geohash.decode_exactly(center)
-    # 1 degree of latitude ~= 111 km; longitude scales by cos(lat).
     cell_h_km = max(2 * lat_err * 111.0, 0.01)
     cell_w_km = max(2 * lng_err * 111.0 * math.cos(math.radians(lat)), 0.01)
-    # +1 step of slack so a store sitting on the far edge of a corner cell
-    # still gets picked up after the haversine filter.
     steps_lat = int(math.ceil(radius_km / cell_h_km)) + 1
     steps_lng = int(math.ceil(radius_km / cell_w_km)) + 1
-    cells = set()
+    cells: set[str] = set()
     for dy in range(-steps_lat, steps_lat + 1):
         for dx in range(-steps_lng, steps_lng + 1):
             cells.add(_encode(lat + dy * 2 * lat_err, lng + dx * 2 * lng_err))
     return list(cells)
 
 
-def find_nearby_stores(customer_lat: float, customer_lng: float,
-                        radius_km: float) -> list:
-    cells_to_check = _cells_covering_radius(customer_lat, customer_lng, radius_km)
+async def find_nearby_stores_async(customer_lat: float, customer_lng: float,
+                                   radius_km: float) -> list[dict]:
+    """Return open, active, non-suspended stores within radius_km."""
+    from services.db import pool
+    cells = _cells_covering_radius(customer_lat, customer_lng, radius_km)
+    async with pool().acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id AS store_id,
+                   (location->>'lat')::float AS lat,
+                   (location->>'lng')::float AS lng,
+                   is_active, is_verified,
+                   COALESCE(is_suspended, false) AS is_suspended
+            FROM stores
+            WHERE geohash6 = ANY($1)
+              AND is_open = true
+              AND is_active = true
+              AND NOT COALESCE(is_suspended, false)
+        """, cells)
 
     results = []
-    for cell in cells_to_check:
-        node = db.reference(f"geofence_index/{cell}").get()
-        if not node:
-            continue
-        for store_id, data in node.items():
-            if not data.get("is_active"):
-                continue
-            if data.get("is_suspended"):
-                continue
-            dist = haversine_km(customer_lat, customer_lng, data["lat"], data["lng"])
-            if dist <= radius_km:
-                results.append({**data, "distance_km": round(dist, 3)})
-
+    for row in rows:
+        dist = haversine_km(customer_lat, customer_lng, row["lat"], row["lng"])
+        if dist <= radius_km:
+            results.append({**dict(row), "distance_km": round(dist, 3)})
     results.sort(key=lambda x: x["distance_km"])
     return results
 
 
-def find_all_stores_in_radius(customer_lat: float, customer_lng: float,
-                               radius_km: float) -> list:
-    """Like find_nearby_stores but includes inactive/suspended stores (for map display)."""
-    cells_to_check = _cells_covering_radius(customer_lat, customer_lng, radius_km)
+async def find_all_stores_in_radius_async(customer_lat: float, customer_lng: float,
+                                          radius_km: float) -> list[dict]:
+    """Return ALL stores in radius (including inactive/suspended) — for map display."""
+    from services.db import pool
+    cells = _cells_covering_radius(customer_lat, customer_lng, radius_km)
+    async with pool().acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id AS store_id,
+                   (location->>'lat')::float AS lat,
+                   (location->>'lng')::float AS lng,
+                   is_active, is_verified,
+                   COALESCE(is_suspended, false) AS is_suspended
+            FROM stores
+            WHERE geohash6 = ANY($1)
+        """, cells)
 
     results = []
-    for cell in cells_to_check:
-        node = db.reference(f"geofence_index/{cell}").get()
-        if not node:
-            continue
-        for store_id, data in node.items():
-            dist = haversine_km(customer_lat, customer_lng, data["lat"], data["lng"])
-            if dist <= radius_km:
-                results.append({**data, "distance_km": round(dist, 3)})
-
+    for row in rows:
+        dist = haversine_km(customer_lat, customer_lng, row["lat"], row["lng"])
+        if dist <= radius_km:
+            results.append({**dict(row), "distance_km": round(dist, 3)})
     results.sort(key=lambda x: x["distance_km"])
     return results
+
+
+# ── No-op stubs kept for callers that call these explicitly ───────────────────
+# The geofence is now derived from stores.geohash6 + is_open dynamically in SQL.
+# Opening/closing a store updates is_open in the stores table; the next query
+# picks it up automatically — no separate index record to maintain.
+
+def index_store_geofence(store_id: str, lat: float, lng: float,
+                          is_active: bool = True, is_verified: bool = False,
+                          is_suspended: bool = False, zone_id: str = "") -> str:
+    return _encode(lat, lng)
+
+
+def remove_store_from_geofence_index(store_id: str, lat: float, lng: float) -> None:
+    pass

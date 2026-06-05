@@ -33,9 +33,19 @@
 - [x] A.3 — GZIP response compression (1 line in main.py)
 - [x] A.4 — Background cache warming on server startup
 
-### Phase B — Redis Shared Cache (When scaling to multiple workers)
-- [ ] B.1 — Add Redis service (Railway free tier)
-- [ ] B.2 — Cache invalidation on catalog updates
+### Phase A+ — Whole-app scaling (2026-05-30, zero new services for the core)
+- [x] A+.1 — Unblock the event loop everywhere (`services/firebase_async.py`); converted orders/stores/catalog/broadcasting/WS
+- [x] A+.2 — WebSocket memory-leak fix + lifecycle (`services/location_ws.py`); `close_order_channel` now actually called
+- [x] A+.3 — Event-driven broadcasting (asyncio.Event + Redis signal) — removed 2 s polling
+- [x] A+.5 — Bounded TTL cache (max_size eviction)
+- [x] A+.7 — Push-driven customer UI: broadcasting/tracking screens react to FCM stream, poll slowed to 8s fallback (`customer_app`) — **needs APK rebuild**
+- [x] A+.6 — Firebase `.indexOn` rules added/corrected (`firebase/realtime-db.json`); fixed wrong `delivery_boy_id` → `assigned_delivery_boy_id`. **Deploy: `firebase deploy --only database`**
+
+### Phase B — Redis Pub/Sub + Shared Cache (multi-worker)
+- [x] B.1 — Redis Pub/Sub bus (`services/redis_bus.py`) — WS tracking + accept signal across workers; auto-disables without REDIS_URL
+- [x] B.2 — Cross-worker cache invalidation on catalog/store updates (`services/cache.invalidate`)
+- [ ] B.3 — Provision Redis service on Railway + set `REDIS_URL` (manual ops step)
+- [ ] B.4 — Run uvicorn with `--workers N` once Redis is live
 
 ### Phase C — CDN + Image Optimization
 - [ ] C.1 — Firebase Storage CDN Cache-Control headers

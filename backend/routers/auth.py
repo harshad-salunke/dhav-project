@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from firebase_admin import auth as firebase_auth, db
+from firebase_admin import auth as firebase_auth
 
 from models.user import TokenVerifyResponse
+from services.db import pool
 from utils.helpers import now_ms
 
 router = APIRouter()
@@ -18,8 +19,6 @@ def _verify_firebase_token(credentials: HTTPAuthorizationCredentials = Depends(_
     try:
         return firebase_auth.verify_id_token(token, clock_skew_seconds=60)
     except firebase_auth.ExpiredIdTokenError:
-        # Token expired but within grace window — try once more without grace
-        # (clock_skew_seconds already handled it above; this branch means truly expired)
         raise HTTPException(status_code=401, detail="Token expired — please sign in again")
     except firebase_auth.RevokedIdTokenError:
         raise HTTPException(status_code=401, detail="Token revoked")
@@ -34,35 +33,41 @@ async def verify_token(decoded: dict = Depends(_verify_firebase_token)):
     uid = decoded["uid"]
     email = decoded.get("email", "")
 
-    user_ref = db.reference(f"users/{uid}")
-    user_data = user_ref.get()
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE uid = $1", uid)
 
-    if user_data is None:
-        # First login — check if this email belongs to a pre-registered delivery boy.
-        # Store owners add delivery boys by email before they ever log in, so we
-        # need to promote them to 'delivery' role here rather than defaulting to 'customer'.
+    if row is None:
+        # First login — check if this email belongs to a pre-registered delivery boy
         role_on_create = "customer"
         store_id_on_create = None
-        all_boys = db.reference("delivery_boys").get() or {}
-        for boy_id, boy in all_boys.items():
-            if boy.get("google_account_email", "").lower() == email.lower():
+
+        async with pool().acquire() as conn:
+            boy_row = await conn.fetchrow(
+                "SELECT id, store_id FROM delivery_boys WHERE lower(google_account_email) = lower($1) LIMIT 1",
+                email,
+            )
+            if boy_row:
                 role_on_create = "delivery"
-                store_id_on_create = boy.get("store_id")
+                store_id_on_create = boy_row["store_id"]
                 # Link the Firebase UID back to the delivery_boys record
-                db.reference(f"delivery_boys/{boy_id}").update({"uid": uid})
-                break
+                await conn.execute(
+                    "UPDATE delivery_boys SET uid = $1 WHERE id = $2",
+                    uid, boy_row["id"],
+                )
+
+        async with pool().acquire() as conn:
+            await conn.execute("""
+                INSERT INTO users (uid, email, name, role, store_id, is_active, created_at)
+                VALUES ($1, $2, $3, $4, $5, true, $6)
+                ON CONFLICT (uid) DO NOTHING
+            """, uid, email, decoded.get("name", ""), role_on_create, store_id_on_create, now_ms())
 
         user_data = {
-            "uid": uid,
-            "email": email,
-            "display_name": decoded.get("name", ""),
-            "role": role_on_create,
-            "created_at": now_ms(),
-            "is_active": True,
+            "uid": uid, "email": email, "name": decoded.get("name", ""),
+            "role": role_on_create, "store_id": store_id_on_create, "is_active": True,
         }
-        if store_id_on_create:
-            user_data["store_id"] = store_id_on_create
-        user_ref.set(user_data)
+    else:
+        user_data = dict(row)
 
     role = user_data.get("role", "customer")
     if role not in VALID_ROLES:
@@ -71,7 +76,7 @@ async def verify_token(decoded: dict = Depends(_verify_firebase_token)):
     return TokenVerifyResponse(
         uid=uid,
         email=user_data.get("email", email),
-        display_name=user_data.get("display_name", ""),
+        display_name=user_data.get("name", "") or user_data.get("display_name", ""),
         role=role,
         is_active=user_data.get("is_active", True),
     )

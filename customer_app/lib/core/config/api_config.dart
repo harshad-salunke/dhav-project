@@ -5,7 +5,7 @@ class ApiConfig {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
     // defaultValue: 'http://10.0.2.2:8000'  // Android emulator (local)
-    defaultValue: 'https://dhav-backend-production.up.railway.app',
+    defaultValue: 'https://dhav-backend.onrender.com',
   );
 
   /// WebSocket base URL (ws:// or wss://)

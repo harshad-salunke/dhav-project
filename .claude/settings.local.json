@@ -25,7 +25,21 @@
       "Bash(curl -s \"https://dhav-backend-production.up.railway.app/catalog/items\" -w \"\\\\n1st items: HTTP %{http_code} | %{time_total}s\" -o /dev/null)",
       "Bash(curl -s \"https://dhav-backend-production.up.railway.app/catalog/items\" -w \"\\\\n2nd items: HTTP %{http_code} | %{time_total}s\" -o /dev/null)",
       "Bash(firebase --version)",
-      "Bash(firebase projects:list)"
+      "Bash(firebase projects:list)",
+      "Bash(python -m py_compile main.py dependencies.py config.py services/firebase_async.py services/redis_bus.py services/cache.py services/location_ws.py services/broadcasting.py services/geofencing.py routers/orders.py routers/stores.py routers/catalog.py)",
+      "Bash(python -c \"import main; print\\('IMPORT OK — routes:', len\\(main.app.routes\\)\\)\")",
+      "Bash(python -m pytest -q)",
+      "Bash(python -c \"import main; print\\('OK', len\\(main.app.routes\\)\\)\")",
+      "Bash(python -c \"import json; json.load\\(open\\('realtime-db.json'\\)\\); json.load\\(open\\('realtime-db.rules'\\)\\); print\\('BOTH VALID JSON'\\)\")",
+      "Bash(rename \"c:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\backend\\\\services\\\\firebase_async.py\" \"firebase_async.py.bak\")",
+      "Bash(.venv\\\\Scripts\\\\pip install *)",
+      "Bash(python -m py_compile routers/admin.py)",
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile routers/stores.py)",
+      "Bash(git check-ignore *)",
+      "PowerShell(python -c \"import json; print\\(json.dumps\\(json.load\\(open\\('backend/firebase-service-account.json'\\)\\)\\)\\)\")",
+      "PowerShell(Set-Clipboard)",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\('backend/firebase-service-account.json'\\)\\); s=json.dumps\\(d\\); print\\('PARSES OK as single JSON'\\); print\\('one-line length =', len\\(s\\), 'chars'\\); print\\('keys:', list\\(d.keys\\(\\)\\)\\)\")"
     ]
   }
 }

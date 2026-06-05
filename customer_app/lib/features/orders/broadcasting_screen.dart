@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/providers/catalog_provider.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../main.dart' show fcmService;
 
 class BroadcastingScreen extends StatefulWidget {
   const BroadcastingScreen({super.key});
@@ -18,6 +19,8 @@ class _BroadcastingScreenState extends State<BroadcastingScreen>
     with TickerProviderStateMixin {
   Timer? _pollTimer;
   Timer? _waveTimer;
+  Timer? _timeoutTimer;
+  StreamSubscription<String>? _fcmSub;
   String? _orderId;
   int _wave = 1;
   bool _timedOut = false;
@@ -55,6 +58,11 @@ class _BroadcastingScreenState extends State<BroadcastingScreen>
       _startedAt = DateTime.now();
       _startPolling();
       _startWaveProgression();
+      // React the instant the store-accepted push arrives (much faster than the
+      // fallback poll). The poll below stays as a safety net for missed pushes.
+      _fcmSub ??= fcmService.orderUpdates.listen((orderId) {
+        if (orderId == _orderId) _checkOrder();
+      });
     }
   }
 
@@ -77,41 +85,49 @@ class _BroadcastingScreenState extends State<BroadcastingScreen>
   }
 
   void _startPolling() {
-    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
-      if (_checking || !mounted) return;
-      _checking = true;
-      final order =
-          await context.read<OrderProvider>().fetchOrder(_orderId!);
-      _checking = false;
-      if (!mounted) return;
-      if (order == null) return;
+    // Fallback poll (8s). The FCM stream handles the fast path; this only
+    // catches a status change if a push was delayed or missed.
+    _pollTimer = Timer.periodic(
+        const Duration(seconds: 8), (_) => _checkOrder());
 
-      if (order.status == 'broadcasting_wave_2' && _wave < 2) {
-        setState(() => _wave = 2);
-      }
-      if (order.status == 'broadcasting_wave_3' && _wave < 3) {
-        setState(() => _wave = 3);
-      }
-
-      if (order.status == 'accepted' || order.status == 'store_accepted') {
-        _pollTimer?.cancel();
-        _waveTimer?.cancel();
-        Navigator.pushReplacementNamed(context, '/order-accepted',
-            arguments: {'order': order});
-      } else if (order.status == 'failed' || order.status == 'no_stores') {
-        _pollTimer?.cancel();
-        _waveTimer?.cancel();
-        setState(() => _timedOut = true);
-      }
-    });
-
-    Timer(const Duration(minutes: 3), () {
+    _timeoutTimer = Timer(const Duration(minutes: 3), () {
       if (mounted && !_timedOut) {
         setState(() => _timedOut = true);
-        _pollTimer?.cancel();
-        _waveTimer?.cancel();
+        _stopTimers();
       }
     });
+  }
+
+  /// Fetch the order and act on its status. Called by both the FCM push
+  /// (instant) and the fallback poll. Guarded so the two never overlap.
+  Future<void> _checkOrder() async {
+    if (_checking || !mounted || _orderId == null) return;
+    _checking = true;
+    final order = await context.read<OrderProvider>().fetchOrder(_orderId!);
+    _checking = false;
+    if (!mounted || order == null) return;
+
+    if (order.status == 'broadcasting_wave_2' && _wave < 2) {
+      setState(() => _wave = 2);
+    }
+    if (order.status == 'broadcasting_wave_3' && _wave < 3) {
+      setState(() => _wave = 3);
+    }
+
+    if (order.status == 'accepted' || order.status == 'store_accepted') {
+      _stopTimers();
+      Navigator.pushReplacementNamed(context, '/order-accepted',
+          arguments: {'order': order});
+    } else if (order.status == 'failed' || order.status == 'no_stores') {
+      _stopTimers();
+      setState(() => _timedOut = true);
+    }
+  }
+
+  void _stopTimers() {
+    _pollTimer?.cancel();
+    _waveTimer?.cancel();
+    _timeoutTimer?.cancel();
   }
 
   @override
@@ -119,8 +135,8 @@ class _BroadcastingScreenState extends State<BroadcastingScreen>
     _pulse1.dispose();
     _pulse2.dispose();
     _pulse3.dispose();
-    _pollTimer?.cancel();
-    _waveTimer?.cancel();
+    _fcmSub?.cancel();
+    _stopTimers();
     super.dispose();
   }
 

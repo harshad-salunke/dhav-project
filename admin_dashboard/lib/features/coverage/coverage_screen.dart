@@ -89,9 +89,26 @@ class _CoverageScreenState extends State<CoverageScreen> {
       _customers = (results[0]['customers'] as List)
           .map((c) => Map<String, dynamic>.from(c as Map))
           .toList();
-      _stores = (results[1]['stores'] as List)
-          .map((s) => Map<String, dynamic>.from(s as Map))
-          .toList();
+      _stores = (results[1]['stores'] as List).map((s) {
+        final m = Map<String, dynamic>.from(s as Map);
+        // Normalize Postgres shape for the Leaflet map JS, which expects
+        // top-level lat/lng, store_id, name and area.
+        final loc = m['location'] is Map
+            ? Map<String, dynamic>.from(m['location'] as Map)
+            : const {};
+        m['lat'] ??= loc['lat'];
+        m['lng'] ??= loc['lng'];
+        m['store_id'] = m['store_id'] ?? m['id'];
+        final name = m['name'];
+        if (name == null || (name is String && name.isEmpty)) {
+          m['name'] = m['shop_name'];
+        }
+        final area = m['area'];
+        if (area == null || (area is String && area.isEmpty)) {
+          m['area'] = m['address'];
+        }
+        return m;
+      }).toList();
 
       _buildMap();
     } catch (e) {
@@ -107,13 +124,14 @@ class _CoverageScreenState extends State<CoverageScreen> {
     final storesJson = jsonEncode(_stores);
 
     final htmlContent = _buildMapHtml(customersJson, storesJson, _radiusM);
-    final blob = html.Blob([htmlContent], 'text/html');
-    final url = html.Url.createObjectUrlFromBlob(blob);
 
+    // Use `srcdoc` (inline document) rather than a blob: URL. Blob-URL iframes
+    // render blank under some Flutter-web renderer/browser combinations; srcdoc
+    // is same-document and reliable.
     ui.platformViewRegistry.registerViewFactory(
       _mapViewId,
       (int viewId) => html.IFrameElement()
-        ..src = url
+        ..srcdoc = htmlContent
         ..style.border = 'none'
         ..style.width = '100%'
         ..style.height = '100%',
@@ -282,10 +300,13 @@ class _CoverageScreenState extends State<CoverageScreen> {
     var RADIUS    = $radius;
 
     var map = L.map('map', { preferCanvas: false }).setView([18.5204, 73.8567], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://openstreetmap.org">OSM</a>',
       maxZoom: 18
     }).addTo(map);
+
+    // Collect every plotted point so we can fit the view to real data.
+    var bounds = [];
 
     /* ── Haversine distance (meters) ── */
     function dist(lat1, lng1, lat2, lng2) {
@@ -333,6 +354,7 @@ class _CoverageScreenState extends State<CoverageScreen> {
       L.marker([sLat, sLng], { icon: icon, zIndexOffset: 50 })
         .addTo(map)
         .bindPopup(popup, { maxWidth: 260, minWidth: 210 });
+      bounds.push([sLat, sLng]);
     });
 
     /* ── Build customer circles + markers ── */
@@ -385,7 +407,22 @@ class _CoverageScreenState extends State<CoverageScreen> {
       L.marker([cLat, cLng], { icon: dotIcon, zIndexOffset: 100 })
         .addTo(map)
         .bindPopup(custPopup, { maxWidth: 220 });
+      bounds.push([cLat, cLng]);
     });
+
+    /* ── Fit the view to actual data, and force a relayout. Leaflet renders
+          blank when it initialises before the iframe has its final size, so
+          invalidateSize() after a tick is required. ── */
+    function refreshView() {
+      map.invalidateSize();
+      if (bounds.length === 1) {
+        map.setView(bounds[0], 14);
+      } else if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      }
+    }
+    window.addEventListener('load', refreshView);
+    setTimeout(refreshView, 400);
 
     /* ── Navigate to store detail ── */
     function viewStore(storeId) {

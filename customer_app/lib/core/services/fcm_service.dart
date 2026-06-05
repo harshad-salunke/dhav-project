@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +18,12 @@ class FcmService {
   /// in-app notification history shown in the Notifications screen.
   NotificationProvider? notificationProvider;
 
-  Function(String orderId)? onOrderStatusUpdate;
+  /// Broadcast stream of order IDs from incoming order-update pushes.
+  /// Screens (broadcasting, tracking) listen to react INSTANTLY to a status
+  /// change instead of waiting for the next poll. Broadcast = many listeners.
+  final StreamController<String> _orderUpdateController =
+      StreamController<String>.broadcast();
+  Stream<String> get orderUpdates => _orderUpdateController.stream;
 
   FcmService({required this.navigatorKey});
 
@@ -93,7 +99,7 @@ class FcmService {
       type: NotificationProvider.typeFromData(data),
     );
 
-    if (orderId != null) onOrderStatusUpdate?.call(orderId);
+    if (orderId != null) _orderUpdateController.add(orderId);
   }
 
   void _handleMessageTap(RemoteMessage message) {
@@ -117,6 +123,7 @@ class FcmService {
   }
 
   void dispose() {
-    // FirebaseMessaging listeners are persistent; nothing to dispose here.
+    // FirebaseMessaging listeners are persistent; just close our stream.
+    _orderUpdateController.close();
   }
 }

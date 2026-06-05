@@ -54,7 +54,7 @@ class TestProcessStoreFailure:
         updated = store_ref.update.call_args[0][0]
         assert updated["strike_count"] == 1
         assert updated["total_strikes"] == 1
-        mock_warn.assert_called_once_with("tok_abc", 1, "order_001")
+        mock_warn.assert_called_once_with("tok_abc", 1, "order_001", owner_uid=None)
         mock_susp.assert_not_called()
         mock_geo.assert_not_called()  # no suspension yet
 
@@ -111,7 +111,7 @@ class TestProcessStoreFailure:
         assert updated["is_active"] is False
         assert updated["is_suspended"] is True
         assert updated.get("suspension_end_date") is None  # permanent ban has None
-        mock_susp.assert_called_once_with("tok_abc", 0)  # 0 days = permanent
+        mock_susp.assert_called_once_with("tok_abc", 0, owner_uid=None)  # 0 days = permanent
         mock_warn.assert_not_called()
         mock_geo.assert_called_once()
 

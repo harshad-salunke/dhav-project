@@ -1,16 +1,12 @@
 """
 Delivery-boy specific endpoints.
-Currently used for:
-  - PATCH /delivery/me/fcm-token  — delivery boy updates their own FCM token
-  - GET  /delivery/me/profile     — delivery boy fetches their own profile
 """
-
 from fastapi import APIRouter, Depends, HTTPException
-from firebase_admin import db
 from pydantic import BaseModel
 
-from dependencies import get_current_user, require_role
+from dependencies import require_role
 from models.user import TokenVerifyResponse
+from services.db import pool
 from utils.helpers import now_ms
 
 router = APIRouter()
@@ -25,33 +21,18 @@ async def update_delivery_fcm_token(
     body: FcmTokenRequest,
     user: TokenVerifyResponse = Depends(require_role("delivery")),
 ):
-    """
-    Delivery boy updates their own FCM token.
-    The token is stored under the delivery_boys node inside their store.
-    """
-    uid = user.uid
-
-    # Look up which store this delivery boy belongs to
-    # delivery boys are stored at stores/{store_id}/delivery_boys/{uid}
-    stores_ref = db.reference("stores")
-    stores_snapshot = stores_ref.get() or {}
-
-    target_store_id = None
-    for store_id, store_data in stores_snapshot.items():
-        delivery_boys = store_data.get("delivery_boys", {}) if isinstance(store_data, dict) else {}
-        if uid in delivery_boys:
-            target_store_id = store_id
-            break
-
-    if target_store_id is None:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, store_id FROM delivery_boys WHERE uid=$1 LIMIT 1", user.uid
+        )
+    if not row:
         raise HTTPException(
             status_code=404,
-            detail="Delivery boy not found in any store. Ask your store owner to add you.",
+            detail="Delivery boy not found. Ask your store owner to add you.",
         )
-
-    db.reference(f"stores/{target_store_id}/delivery_boys/{uid}").update(
-        {"fcm_token": body.fcm_token, "token_updated_at": now_ms()}
-    )
+    # Store FCM token on the user record (used for notifications)
+    async with pool().acquire() as conn:
+        await conn.execute("UPDATE users SET fcm_token=$2 WHERE uid=$1", user.uid, body.fcm_token)
     return {"status": "ok"}
 
 
@@ -59,21 +40,14 @@ async def update_delivery_fcm_token(
 async def get_delivery_profile(
     user: TokenVerifyResponse = Depends(require_role("delivery")),
 ):
-    """Returns the delivery boy's own profile from their store's delivery_boys node."""
-    uid = user.uid
-
-    stores_snapshot = db.reference("stores").get() or {}
-    for store_id, store_data in stores_snapshot.items():
-        if not isinstance(store_data, dict):
-            continue
-        delivery_boys = store_data.get("delivery_boys", {})
-        if uid in delivery_boys:
-            profile = delivery_boys[uid]
-            return {
-                "uid": uid,
-                "store_id": store_id,
-                "store_name": store_data.get("shop_name", ""),
-                **profile,
-            }
-
-    raise HTTPException(status_code=404, detail="Delivery boy profile not found.")
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT db.*, s.shop_name AS store_name
+            FROM delivery_boys db
+            LEFT JOIN stores s ON db.store_id = s.id
+            WHERE db.uid = $1
+            LIMIT 1
+        """, user.uid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Delivery boy profile not found.")
+    return {"uid": user.uid, **dict(row)}

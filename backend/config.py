@@ -3,11 +3,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Firebase — file path used locally; JSON string used on Railway (see firebase_init.py)
+    # Firebase — Auth + FCM only (RTDB and Storage removed)
     firebase_service_account: str = "firebase-service-account.json"
     firebase_project_id: str = "dhav-quick-commerce"
-    firebase_database_url: str = "https://dhav-quick-commerce-default-rtdb.firebaseio.com"
-    firebase_storage_bucket: str = "dhav-quick-commerce.appspot.com"
+
+    # Supabase PostgreSQL
+    # transaction-mode pooler (port 6543) — used for all app queries
+    database_url: str = ""
+    # session-mode pooler (port 5432) — used for migrations/DDL only
+    direct_url: str = ""
+
+    # Supabase Storage
+    supabase_url: str = "https://kkenbavduuttrocaaqsj.supabase.co"
+    supabase_service_key: str = ""    # Dashboard → Settings → API → service_role
+
+    # Redis — leave empty for single-worker / local dev (bus auto-disables).
+    redis_url: str = ""
 
     # Broadcasting waves
     broadcast_wave1_radius_km: float = 1.0

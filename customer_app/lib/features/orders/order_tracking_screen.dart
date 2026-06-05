@@ -9,6 +9,7 @@ import '../../core/models/order.dart';
 import '../../core/providers/order_provider.dart';
 import '../../core/services/location_ws_service.dart';
 import '../../core/theme/app_colors.dart';
+import '../../main.dart' show fcmService;
 
 class OrderTrackingScreen extends StatefulWidget {
   const OrderTrackingScreen({super.key});
@@ -26,6 +27,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
   int _etaMinutes = 0;
   CustomerOrder? _order;
   Timer? _pollTimer;
+  StreamSubscription<String>? _fcmSub;
   bool _wsStarted = false;
   bool _navigatedToDelivered = false;
 
@@ -99,6 +101,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
     if (orderId != null && _pollTimer == null) {
       _loadOrder(orderId);
       _startPolling(orderId);
+      // Refresh instantly when a status push (packed / out-for-delivery /
+      // delivered) arrives, instead of waiting for the 8s fallback poll.
+      _fcmSub ??= fcmService.orderUpdates.listen((id) {
+        if (id == orderId && mounted) _loadOrder(orderId);
+      });
     }
   }
 
@@ -317,6 +324,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen>
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _fcmSub?.cancel();
     _wsService.stop();
     _markerAnimCtrl.dispose();
     _pulseCtrl.dispose();

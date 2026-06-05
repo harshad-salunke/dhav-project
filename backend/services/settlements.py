@@ -1,7 +1,13 @@
-from datetime import date, timedelta
-from firebase_admin import db
+"""
+Weekly settlement generation — PostgreSQL edition.
+"""
+import logging
+from datetime import date, datetime, timedelta
 
+from services.db import pool
 from utils.helpers import new_id, now_ms
+
+log = logging.getLogger("settlements")
 
 
 def _week_bounds() -> tuple[str, str]:
@@ -11,76 +17,84 @@ def _week_bounds() -> tuple[str, str]:
     return monday.isoformat(), sunday.isoformat()
 
 
-def generate_weekly_settlements() -> int:
-    week_start, week_end = _week_bounds()
-    stores_node = db.reference("stores").get() or {}
-    orders_node = db.reference("orders").get() or {}
-    created = 0
+def _week_start_ms(week_start: str) -> int:
+    return int(datetime.fromisoformat(week_start).timestamp() * 1000)
 
-    for store_id in stores_node:
-        # Skip if settlement already exists for this week
-        existing = (
-            db.reference("settlements")
-            .order_by_child("store_id")
-            .equal_to(store_id)
-            .get() or {}
-        )
-        already_exists = any(
-            s.get("week_start") == week_start for s in existing.values()
-        )
-        if already_exists:
+
+async def generate_weekly_settlements() -> int:
+    week_start, week_end = _week_bounds()
+    week_start_ms = _week_start_ms(week_start)
+
+    async with pool().acquire() as conn:
+        store_rows = await conn.fetch("SELECT id FROM stores WHERE is_active = true")
+
+    created = 0
+    for store_row in store_rows:
+        store_id = store_row["id"]
+
+        async with pool().acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id FROM settlements WHERE store_id = $1 AND week_start = $2",
+                store_id, week_start,
+            )
+        if existing:
             continue
 
-        delivered_orders = [
-            o for o in orders_node.values()
-            if o.get("accepted_by_store_id") == store_id
-            and o.get("status") == "delivered"
-            and o.get("delivered_at", 0) >= _week_start_ms(week_start)
-        ]
+        async with pool().acquire() as conn:
+            order_rows = await conn.fetch("""
+                SELECT platform_fee_amount FROM orders
+                WHERE accepted_by_store_id = $1
+                  AND status = 'delivered'
+                  AND delivered_at >= $2
+            """, store_id, week_start_ms)
 
-        total_fee_owed = sum(o.get("platform_fee_amount", 0.0) for o in delivered_orders)
+        total_fee_owed = sum(r["platform_fee_amount"] or 0.0 for r in order_rows)
         settlement_id = new_id()
 
-        db.reference(f"settlements/{settlement_id}").set({
-            "settlement_id": settlement_id,
-            "store_id": store_id,
-            "week_start": week_start,
-            "week_end": week_end,
-            "total_orders_delivered": len(delivered_orders),
-            "total_platform_fee_owed": round(total_fee_owed, 2),
-            "total_fee_paid": 0.0,
-            "balance_due": round(total_fee_owed, 2),
-            "status": "pending",
-            "payment_records": [],
-            "is_overdue": False,
-            "created_at": now_ms(),
-        })
+        async with pool().acquire() as conn:
+            await conn.execute("""
+                INSERT INTO settlements (
+                    id, store_id, week_start, week_end,
+                    total_orders_delivered, total_platform_fee_owed,
+                    total_fee_paid, balance_due, status,
+                    is_overdue, payment_records, created_at
+                ) VALUES ($1,$2,$3,$4,$5,$6,0,$7,'pending',false,'[]',$8)
+            """, settlement_id, store_id, week_start, week_end,
+                len(order_rows), round(total_fee_owed, 2),
+                round(total_fee_owed, 2), now_ms())
         created += 1
 
+    log.info("generated %d settlements for week %s", created, week_start)
     return created
 
 
-def mark_overdue_settlements() -> int:
-    settlements_node = db.reference("settlements").get() or {}
-    marked = 0
-    for sid, s in settlements_node.items():
-        if s.get("status") == "settled" or s.get("is_overdue"):
+async def mark_overdue_settlements() -> int:
+    today = date.today()
+    async with pool().acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, store_id, week_end, balance_due FROM settlements
+            WHERE status != 'settled'
+              AND is_overdue = false
+              AND balance_due > 0
+        """)
+
+    marked_ids = []
+    for row in rows:
+        try:
+            week_end_date = date.fromisoformat(row["week_end"])
+        except (ValueError, TypeError):
             continue
-        if s.get("balance_due", 0) > 0:
-            week_end_date = date.fromisoformat(s["week_end"])
-            if date.today() > week_end_date:
-                db.reference(f"settlements/{sid}").update({"is_overdue": True})
+        if today > week_end_date:
+            marked_ids.append(row["id"])
 
-                # Hide overdue store from geofence
-                from services.geofencing import remove_store_from_geofence_index
-                store = db.reference(f"stores/{s['store_id']}").get() or {}
-                loc = store.get("location", {})
-                if loc.get("lat") and loc.get("lng"):
-                    remove_store_from_geofence_index(s["store_id"], loc["lat"], loc["lng"])
-                marked += 1
+    if marked_ids:
+        async with pool().acquire() as conn:
+            await conn.execute(
+                "UPDATE settlements SET is_overdue = true WHERE id = ANY($1)",
+                marked_ids,
+            )
+
+    marked = len(marked_ids)
+    if marked:
+        log.info("marked %d settlements as overdue", marked)
     return marked
-
-
-def _week_start_ms(week_start: str) -> int:
-    from datetime import datetime
-    return int(datetime.fromisoformat(week_start).timestamp() * 1000)

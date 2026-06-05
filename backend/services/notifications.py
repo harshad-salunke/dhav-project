@@ -1,6 +1,7 @@
+import asyncio
 from datetime import timedelta
 
-from firebase_admin import db, messaging
+from firebase_admin import messaging
 
 from utils.helpers import new_id, now_ms
 
@@ -13,7 +14,23 @@ from utils.helpers import new_id, now_ms
 _ORDER_NOTIF_TTL = timedelta(seconds=180)
 
 
-# ── Firebase persistence ───────────────────────────────────────────────────────
+# ── PostgreSQL notification persistence ───────────────────────────────────────
+
+async def _persist_notification(
+    user_id: str, title: str, body: str, notif_type: str,
+    order_id: str | None, sender: str,
+) -> None:
+    from services.db import pool
+    try:
+        notif_id = new_id()
+        async with pool().acquire() as conn:
+            await conn.execute("""
+                INSERT INTO notifications (id, uid, title, body, type, order_id, is_read, sender, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8)
+            """, notif_id, user_id, title, body, notif_type, order_id, sender, now_ms())
+    except Exception as e:
+        print(f"[Notif] _persist_notification FAILED uid={user_id} error={e}")
+
 
 def _save_notification(
     user_id: str,
@@ -23,23 +40,14 @@ def _save_notification(
     order_id: str | None = None,
     sender: str = "system",
 ) -> None:
-    """Persist a notification to Firebase at notifications/{user_id}/{notif_id}."""
+    """Fire-and-forget: schedule a DB insert without blocking the caller."""
     if not user_id:
         return
     try:
-        notif_id = new_id()
-        db.reference(f"notifications/{user_id}/{notif_id}").set({
-            "notif_id": notif_id,
-            "title": title,
-            "body": body,
-            "type": notif_type,
-            "order_id": order_id,
-            "is_read": False,
-            "created_at": now_ms(),
-            "sender": sender,
-        })
-    except Exception as e:
-        print(f"[Notif] _save_notification FAILED uid={user_id}  error={e}")
+        loop = asyncio.get_event_loop()
+        loop.create_task(_persist_notification(user_id, title, body, notif_type, order_id, sender))
+    except RuntimeError:
+        pass  # no running loop (e.g. test context) — skip persistence
 
 
 def _save_notification_multi(
@@ -50,7 +58,6 @@ def _save_notification_multi(
     order_id: str | None = None,
     sender: str = "system",
 ) -> None:
-    """Persist a notification for multiple users."""
     for uid in user_ids:
         _save_notification(uid, title, body, notif_type, order_id=order_id, sender=sender)
 

@@ -1,94 +1,77 @@
 """
-Notification endpoints — allow any authenticated user to read and manage
-their own notification history stored at notifications/{uid}/{notif_id}.
+Notification endpoints — authenticated users read and manage their own notifications.
 """
 from fastapi import APIRouter, HTTPException, Depends
 
-from firebase_admin import db
-
 from models.user import TokenVerifyResponse
 from dependencies import get_current_user
+from services.db import pool
 from utils.helpers import now_ms
 
 router = APIRouter()
 
-
-# ── GET /notifications/me ──────────────────────────────────────────────────────
 
 @router.get("/me")
 async def get_my_notifications(
     user: TokenVerifyResponse = Depends(get_current_user),
     limit: int = 100,
 ):
-    """
-    Returns the calling user's persisted notifications, newest first.
-    """
-    raw = db.reference(f"notifications/{user.uid}").get() or {}
-    notifs = list(raw.values())
-    notifs.sort(key=lambda n: n.get("created_at", 0), reverse=True)
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM notifications WHERE uid=$1 ORDER BY created_at DESC LIMIT $2",
+            user.uid, limit,
+        )
+    notifs = [dict(r) for r in rows]
     unread = sum(1 for n in notifs if not n.get("is_read", False))
-    return {
-        "notifications": notifs[:limit],
-        "total": len(notifs),
-        "unread": unread,
-    }
+    return {"notifications": notifs, "total": len(notifs), "unread": unread}
 
-
-# ── PATCH /notifications/{notif_id}/read ──────────────────────────────────────
 
 @router.patch("/{notif_id}/read")
 async def mark_notification_read(
     notif_id: str,
     user: TokenVerifyResponse = Depends(get_current_user),
 ):
-    """Mark a single notification as read."""
-    ref = db.reference(f"notifications/{user.uid}/{notif_id}")
-    notif = ref.get()
-    if not notif:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM notifications WHERE id=$1 AND uid=$2", notif_id, user.uid
+        )
+    if not row:
         raise HTTPException(status_code=404, detail="Notification not found")
-    ref.update({"is_read": True})
+    async with pool().acquire() as conn:
+        await conn.execute("UPDATE notifications SET is_read=true WHERE id=$1", notif_id)
     return {"status": "read"}
 
 
-# ── PATCH /notifications/me/read-all ──────────────────────────────────────────
-
 @router.patch("/me/read-all")
-async def mark_all_notifications_read(
-    user: TokenVerifyResponse = Depends(get_current_user),
-):
-    """Mark every notification for this user as read."""
-    ref = db.reference(f"notifications/{user.uid}")
-    raw = ref.get() or {}
-    updates: dict = {}
-    for notif_id, notif in raw.items():
-        if not notif.get("is_read", False):
-            updates[f"{notif_id}/is_read"] = True
-    if updates:
-        ref.update(updates)
-    return {"status": "all_read", "updated": len(updates)}
+async def mark_all_notifications_read(user: TokenVerifyResponse = Depends(get_current_user)):
+    async with pool().acquire() as conn:
+        result = await conn.execute(
+            "UPDATE notifications SET is_read=true WHERE uid=$1 AND is_read=false",
+            user.uid,
+        )
+    # asyncpg returns "UPDATE N" — extract count
+    updated = int(result.split()[-1]) if result else 0
+    return {"status": "all_read", "updated": updated}
 
-
-# ── DELETE /notifications/me ───────────────────────────────────────────────────
 
 @router.delete("/me")
-async def clear_my_notifications(
-    user: TokenVerifyResponse = Depends(get_current_user),
-):
-    """Delete all notifications for the calling user."""
-    db.reference(f"notifications/{user.uid}").delete()
+async def clear_my_notifications(user: TokenVerifyResponse = Depends(get_current_user)):
+    async with pool().acquire() as conn:
+        await conn.execute("DELETE FROM notifications WHERE uid=$1", user.uid)
     return {"status": "cleared"}
 
-
-# ── DELETE /notifications/{notif_id} ──────────────────────────────────────────
 
 @router.delete("/{notif_id}")
 async def delete_notification(
     notif_id: str,
     user: TokenVerifyResponse = Depends(get_current_user),
 ):
-    """Delete a single notification."""
-    ref = db.reference(f"notifications/{user.uid}/{notif_id}")
-    if not ref.get():
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM notifications WHERE id=$1 AND uid=$2", notif_id, user.uid
+        )
+    if not row:
         raise HTTPException(status_code=404, detail="Notification not found")
-    ref.delete()
+    async with pool().acquire() as conn:
+        await conn.execute("DELETE FROM notifications WHERE id=$1", notif_id)
     return {"status": "deleted"}
