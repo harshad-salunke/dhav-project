@@ -43,7 +43,11 @@
       "Bash(node --check _mapscript.js)",
       "Bash(rm -f _mapscript.js)",
       "Bash(curl -sSL -o web/leaflet/leaflet.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js)",
-      "Bash(curl -sSL -o web/leaflet/leaflet.css https://unpkg.com/leaflet@1.9.4/dist/leaflet.css)"
+      "Bash(curl -sSL -o web/leaflet/leaflet.css https://unpkg.com/leaflet@1.9.4/dist/leaflet.css)",
+      "Bash(git -C \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\" ls-files --others --exclude-standard)",
+      "Bash(git -C \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\" ls-files)",
+      "Bash(gh auth *)",
+      "Bash(git *)"
     ]
   }
 }

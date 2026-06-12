@@ -23,7 +23,9 @@ build/
 *.iml
 *.ipr
 *.iws
-
+admin_dashboard/
+customer_app/
+store_app/
 # Firebase credentials (NEVER commit these)
 **/firebase-service-account.json
 **/google-services.json
