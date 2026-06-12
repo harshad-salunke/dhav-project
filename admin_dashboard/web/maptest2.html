@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <style>html,body{margin:0;height:100%;background:#0F1117}#f{border:none;width:100vw;height:100vh}</style>
+</head>
+<body>
+  <iframe id="f" src="/coverage_map.html"></iframe>
+  <script>
+    var STORES = [{
+      "id":"f0ec","store_id":"f0ec","shop_name":"kishor kirana store",
+      "name":"kishor kirana store","owner_name":"Kishor Salunke",
+      "area":"kedgaon","address":"kedgaon","lat":18.4687467,"lng":74.35791,
+      "is_active":true,"is_verified":false,"is_suspended":false,"phone":""
+    }];
+    var CUSTOMERS = [{"uid":"c1","name":"Test Customer","email":"t@t.com","lat":18.47,"lng":74.36}];
+
+    window.addEventListener('message', function (e) {
+      var d = e.data;
+      if (d && d.type === 'coverage_map_ready') {
+        document.getElementById('f').contentWindow.postMessage(
+          JSON.stringify({ type: 'coverage_data', customers: CUSTOMERS, stores: STORES, radius: 2000 }),
+          '*'
+        );
+      }
+      if (d && d.type === 'view_store') {
+        alert('view_store clicked: ' + d.store_id);
+      }
+    });
+  </script>
+</body>
+</html>

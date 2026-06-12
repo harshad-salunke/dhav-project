@@ -20,11 +20,36 @@
 </head>
 <body>
   <script>
+    // Self-heal: an earlier build registered a service worker that aggressively
+    // cached the app bundle and served stale code even across redeploys. Remove
+    // any such worker and its caches, then reload once so the fresh app loads.
+    // (This admin tool no longer registers a service worker — see below.)
+    (function () {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          if (!regs.length) return;
+          Promise.all(regs.map(function (r) { return r.unregister(); }))
+            .then(function () {
+              return ('caches' in window)
+                ? caches.keys().then(function (keys) {
+                    return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                  })
+                : null;
+            })
+            .then(function () {
+              if (!sessionStorage.getItem('sw-cleared')) {
+                sessionStorage.setItem('sw-cleared', '1');
+                location.reload();
+              }
+            });
+        });
+      }
+    })();
+
     window.addEventListener('load', function(ev) {
+      // No `serviceWorker` option => Flutter does NOT register a service worker,
+      // so deploys are always picked up without manual cache clearing.
       _flutter.loader.loadEntrypoint({
-        serviceWorker: {
-          serviceWorkerVersion: serviceWorkerVersion,
-        },
         onEntrypointLoaded: function(engineInitializer) {
           engineInitializer.initializeEngine().then(function(appRunner) {
             appRunner.runApp();

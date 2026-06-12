@@ -39,7 +39,11 @@
       "Bash(git check-ignore *)",
       "PowerShell(python -c \"import json; print\\(json.dumps\\(json.load\\(open\\('backend/firebase-service-account.json'\\)\\)\\)\\)\")",
       "PowerShell(Set-Clipboard)",
-      "PowerShell(python -c \"import json; d=json.load\\(open\\('backend/firebase-service-account.json'\\)\\); s=json.dumps\\(d\\); print\\('PARSES OK as single JSON'\\); print\\('one-line length =', len\\(s\\), 'chars'\\); print\\('keys:', list\\(d.keys\\(\\)\\)\\)\")"
+      "PowerShell(python -c \"import json; d=json.load\\(open\\('backend/firebase-service-account.json'\\)\\); s=json.dumps\\(d\\); print\\('PARSES OK as single JSON'\\); print\\('one-line length =', len\\(s\\), 'chars'\\); print\\('keys:', list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(node --check _mapscript.js)",
+      "Bash(rm -f _mapscript.js)",
+      "Bash(curl -sSL -o web/leaflet/leaflet.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js)",
+      "Bash(curl -sSL -o web/leaflet/leaflet.css https://unpkg.com/leaflet@1.9.4/dist/leaflet.css)"
     ]
   }
 }

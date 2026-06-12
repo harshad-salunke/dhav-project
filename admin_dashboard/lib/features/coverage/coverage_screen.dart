@@ -29,6 +29,8 @@ class _CoverageScreenState extends State<CoverageScreen> {
   final String _mapViewId =
       'coverage-map-${DateTime.now().millisecondsSinceEpoch}';
   bool _mapReady = false;
+  bool _viewRegistered = false;
+  html.IFrameElement? _mapIframe;
 
   // Coverage radius in meters
   static const double _radiusM = 2000;
@@ -120,317 +122,43 @@ class _CoverageScreenState extends State<CoverageScreen> {
   }
 
   void _buildMap() {
-    final customersJson = jsonEncode(_customers);
-    final storesJson = jsonEncode(_stores);
+    // Write data to localStorage BEFORE creating/reloading the iframe.
+    // Since the parent app and coverage_map.html share the same origin
+    // (dhav-quick-commerce.web.app), the iframe reads it directly on load —
+    // no postMessage, no Dart deserialization, no timing race.
+    html.window.localStorage['dhav_coverage_data'] = jsonEncode({
+      'customers': _customers,
+      'stores': _stores,
+      'radius': _radiusM,
+    });
 
-    final htmlContent = _buildMapHtml(customersJson, storesJson, _radiusM);
+    // Cache-bust the src so the iframe always reloads fresh data.
+    final src =
+        '${html.window.location.origin}/coverage_map.html'
+        '?t=${DateTime.now().millisecondsSinceEpoch}';
 
-    // Use `srcdoc` (inline document) rather than a blob: URL. Blob-URL iframes
-    // render blank under some Flutter-web renderer/browser combinations; srcdoc
-    // is same-document and reliable.
-    ui.platformViewRegistry.registerViewFactory(
-      _mapViewId,
-      (int viewId) => html.IFrameElement()
-        ..srcdoc = htmlContent
-        ..style.border = 'none'
-        ..style.width = '100%'
-        ..style.height = '100%',
-    );
+    if (!_viewRegistered) {
+      _viewRegistered = true;
+      ui.platformViewRegistry.registerViewFactory(
+        _mapViewId,
+        (int viewId) {
+          _mapIframe = html.IFrameElement()
+            ..src = src
+            ..style.border = 'none'
+            ..style.width = '100%'
+            ..style.height = '100%';
+          return _mapIframe!;
+        },
+      );
+    } else {
+      // Refresh: reload the iframe; it will re-read updated localStorage.
+      _mapIframe?.src = src;
+    }
 
     setState(() {
       _loading = false;
       _mapReady = true;
     });
-  }
-
-  static String _buildMapHtml(
-      String customersJson, String storesJson, double radius) {
-    return '''<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; background: #0F1117; }
-    #map { height: 100vh; width: 100%; }
-
-    /* Wave pulse animations */
-    @keyframes wave-covered {
-      0%   { opacity: 0.85; }
-      50%  { opacity: 0.45; }
-      100% { opacity: 0.08; }
-    }
-    @keyframes wave-uncovered {
-      0%   { opacity: 0.9; }
-      40%  { opacity: 0.5; }
-      100% { opacity: 0.08; }
-    }
-
-    .wc1 { animation: wave-covered   2.8s ease-in-out infinite 0s; }
-    .wc2 { animation: wave-covered   2.8s ease-in-out infinite 0.7s; }
-    .wc3 { animation: wave-covered   2.8s ease-in-out infinite 1.4s; }
-    .wu1 { animation: wave-uncovered 2.2s ease-in-out infinite 0s; }
-    .wu2 { animation: wave-uncovered 2.2s ease-in-out infinite 0.55s; }
-    .wu3 { animation: wave-uncovered 2.2s ease-in-out infinite 1.1s; }
-
-    /* Leaflet popup dark theme */
-    .leaflet-popup-content-wrapper {
-      background: #1E293B;
-      color: #F8FAFC;
-      border: 1px solid #334155;
-      border-radius: 12px !important;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      padding: 0;
-    }
-    .leaflet-popup-content { margin: 0; }
-    .leaflet-popup-tip { background: #1E293B; }
-    .leaflet-popup-close-button { color: #94A3B8 !important; top: 8px !important; right: 8px !important; }
-
-    .store-popup {
-      font-family: -apple-system, sans-serif;
-      padding: 14px 16px;
-      min-width: 210px;
-    }
-    .store-popup h4 {
-      color: #F8FAFC;
-      font-size: 14px;
-      font-weight: 700;
-      margin: 0 0 3px;
-    }
-    .store-popup .area {
-      color: #94A3B8;
-      font-size: 11px;
-      margin-bottom: 8px;
-    }
-    .store-popup .status-badge {
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 10px;
-      display: inline-block;
-      margin-bottom: 10px;
-      letter-spacing: 0.3px;
-    }
-    .badge-online  { background: rgba(34,197,94,0.15); color: #22C55E; }
-    .badge-offline { background: rgba(239,68,68,0.15);  color: #EF4444; }
-    .store-popup .view-btn {
-      display: block;
-      width: 100%;
-      background: #00897B;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 8px 0;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: inherit;
-      text-align: center;
-      transition: background 0.15s;
-    }
-    .store-popup .view-btn:hover { background: #00695C; }
-
-    .customer-popup {
-      font-family: -apple-system, sans-serif;
-      padding: 12px 14px;
-      min-width: 180px;
-    }
-    .customer-popup h4 {
-      color: #F8FAFC;
-      font-size: 13px;
-      font-weight: 700;
-      margin: 0 0 5px;
-    }
-    .coverage-tag {
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 10px;
-      display: inline-block;
-      margin-bottom: 5px;
-      letter-spacing: 0.3px;
-    }
-    .tag-covered   { background: rgba(34,197,94,0.15); color: #22C55E; }
-    .tag-uncovered { background: rgba(239,68,68,0.15);  color: #EF4444; }
-    .customer-popup .email { color: #64748B; font-size: 10px; }
-
-    #legend {
-      position: absolute;
-      bottom: 20px;
-      right: 12px;
-      background: rgba(15,17,23,0.93);
-      border: 1px solid #2D3748;
-      border-radius: 12px;
-      padding: 12px 16px;
-      font-family: -apple-system, sans-serif;
-      z-index: 1000;
-      min-width: 200px;
-    }
-    #legend h5 {
-      color: #64748B;
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin: 0 0 10px;
-    }
-    .leg { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: #CBD5E1; font-size: 11px; }
-    .leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .leg-ring { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; background: transparent; flex-shrink: 0; }
-    .leg-sep  { border-top: 1px solid #1E293B; margin: 8px 0; }
-    .leg-note { color: #475569; font-size: 10px; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <div id="legend">
-    <h5>Map Legend</h5>
-    <div class="leg"><div class="leg-dot" style="background:#22C55E"></div><span>Customer — shop nearby</span></div>
-    <div class="leg"><div class="leg-dot" style="background:#EF4444"></div><span>Customer — no shop</span></div>
-    <div class="leg"><div class="leg-ring" style="border-color:#00897B;background:rgba(0,137,123,0.12)"></div><span>Store</span></div>
-    <div class="leg-sep"></div>
-    <div class="leg leg-note">Coverage radius: 2 km · Click markers for details</div>
-  </div>
-  <script>
-    var CUSTOMERS = $customersJson;
-    var STORES    = $storesJson;
-    var RADIUS    = $radius;
-
-    var map = L.map('map', { preferCanvas: false }).setView([18.5204, 73.8567], 12);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://openstreetmap.org">OSM</a>',
-      maxZoom: 18
-    }).addTo(map);
-
-    // Collect every plotted point so we can fit the view to real data.
-    var bounds = [];
-
-    /* ── Haversine distance (meters) ── */
-    function dist(lat1, lng1, lat2, lng2) {
-      var R = 6371000, d2r = Math.PI / 180;
-      var dLat = (lat2 - lat1) * d2r, dLng = (lng2 - lng1) * d2r;
-      var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
-              Math.cos(lat1*d2r)*Math.cos(lat2*d2r)*
-              Math.sin(dLng/2)*Math.sin(dLng/2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    /* ── Extract lat/lng from customer (handles multiple API shapes) ── */
-    function getCustomerLoc(c) {
-      if (c.lat && c.lng) return [+c.lat, +c.lng];
-      var loc = c.location || c.address || c.current_address || c.saved_address;
-      if (loc && loc.lat && loc.lng) return [+loc.lat, +loc.lng];
-      return null;
-    }
-
-    /* ── Build store marker ── */
-    STORES.forEach(function(s) {
-      if (!s.lat || !s.lng) return;
-      var sLat = +s.lat, sLng = +s.lng;
-      if (isNaN(sLat) || isNaN(sLng)) return;
-
-      var isOnline = s.is_active && !s.is_suspended;
-      var bg = isOnline ? '#00897B' : '#475569';
-
-      var icon = L.divIcon({
-        className: '',
-        html: '<div style="width:34px;height:34px;background:' + bg + ';border-radius:9px;border:2.5px solid white;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(0,0,0,0.45);font-size:17px;line-height:1">🏪</div>',
-        iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -20]
-      });
-
-      var popup =
-        '<div class="store-popup">' +
-          '<h4>' + (s.name || 'Store') + '</h4>' +
-          '<div class="area">📍 ' + (s.area || '—') + ' &nbsp;·&nbsp; ' + (s.phone || '') + '</div>' +
-          '<span class="status-badge ' + (isOnline ? 'badge-online' : 'badge-offline') + '">' +
-            (isOnline ? '● ONLINE' : '● OFFLINE') +
-          '</span>' +
-          '<button class="view-btn" onclick="viewStore(\'' + s.store_id + '\')">View Store →</button>' +
-        '</div>';
-
-      L.marker([sLat, sLng], { icon: icon, zIndexOffset: 50 })
-        .addTo(map)
-        .bindPopup(popup, { maxWidth: 260, minWidth: 210 });
-      bounds.push([sLat, sLng]);
-    });
-
-    /* ── Build customer circles + markers ── */
-    CUSTOMERS.forEach(function(c) {
-      var loc = getCustomerLoc(c);
-      if (!loc) return;
-      var cLat = loc[0], cLng = loc[1];
-      if (isNaN(cLat) || isNaN(cLng)) return;
-
-      /* check if any store is within coverage radius */
-      var covered = STORES.some(function(s) {
-        if (!s.lat || !s.lng) return false;
-        var sLat = +s.lat, sLng = +s.lng;
-        return !isNaN(sLat) && dist(cLat, cLng, sLat, sLng) <= RADIUS;
-      });
-
-      var clr  = covered ? '#22C55E' : '#EF4444';
-      var pfx  = covered ? 'wc' : 'wu';
-
-      /* 3 concentric wave circles */
-      L.circle([cLat, cLng], {
-        radius: RADIUS * 0.33, color: clr, weight: 2.5, opacity: 0.85,
-        fillColor: clr, fillOpacity: 0.10, className: pfx + '1'
-      }).addTo(map);
-      L.circle([cLat, cLng], {
-        radius: RADIUS * 0.66, color: clr, weight: 1.5, opacity: 0.55,
-        fillColor: clr, fillOpacity: 0.05, className: pfx + '2'
-      }).addTo(map);
-      L.circle([cLat, cLng], {
-        radius: RADIUS,        color: clr, weight: 1,   opacity: 0.30,
-        fillColor: clr, fillOpacity: 0.02, className: pfx + '3'
-      }).addTo(map);
-
-      /* customer dot marker */
-      var dotIcon = L.divIcon({
-        className: '',
-        html: '<div style="width:22px;height:22px;background:' + clr + ';border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1">👤</div>',
-        iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -14]
-      });
-
-      var custPopup =
-        '<div class="customer-popup">' +
-          '<h4>' + (c.name || 'Customer') + '</h4>' +
-          '<span class="coverage-tag ' + (covered ? 'tag-covered' : 'tag-uncovered') + '">' +
-            (covered ? '✓ Shop in range' : '✗ No shop nearby') +
-          '</span>' +
-          (c.email ? '<div class="email">' + c.email + '</div>' : '') +
-        '</div>';
-
-      L.marker([cLat, cLng], { icon: dotIcon, zIndexOffset: 100 })
-        .addTo(map)
-        .bindPopup(custPopup, { maxWidth: 220 });
-      bounds.push([cLat, cLng]);
-    });
-
-    /* ── Fit the view to actual data, and force a relayout. Leaflet renders
-          blank when it initialises before the iframe has its final size, so
-          invalidateSize() after a tick is required. ── */
-    function refreshView() {
-      map.invalidateSize();
-      if (bounds.length === 1) {
-        map.setView(bounds[0], 14);
-      } else if (bounds.length > 1) {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-      }
-    }
-    window.addEventListener('load', refreshView);
-    setTimeout(refreshView, 400);
-
-    /* ── Navigate to store detail ── */
-    function viewStore(storeId) {
-      window.parent.postMessage({ type: 'view_store', store_id: storeId }, '*');
-    }
-  </script>
-</body>
-</html>''';
   }
 
   @override
