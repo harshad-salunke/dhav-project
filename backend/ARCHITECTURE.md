@@ -1,8 +1,14 @@
 # DHAV Backend — System Architecture
 
+> ⚠️ **PARTIALLY OUTDATED (as of 2026-06-13).** Data layer migrated to **Supabase
+> PostgreSQL** (`services/db.py` + `migrations/`), files to Supabase Storage, hosting to
+> **Render** (`https://dhav-backend.onrender.com`). Firebase = Auth + FCM only now.
+> Read "Firebase Realtime Database" as "Postgres" and "Railway" as "Render" below.
+> Current truth: **`docs/ENHANCEMENTS.md` → Current Architecture**.
+
 > **Project:** DHAV — Hyperlocal Kirana Delivery App, Pune  
 > **Backend Version:** 0.2.0  
-> **Stack:** FastAPI · Firebase Realtime Database · Firebase Auth · Firebase FCM · APScheduler  
+> **Stack (historical):** FastAPI · Firebase Realtime Database · Firebase Auth · Firebase FCM · APScheduler  
 
 ---
 

@@ -39,14 +39,74 @@
 
 ## 🔖 CURRENT STATUS (Always update this at top)
 
-**Current Phase:** Phase 7 DEPLOYMENT ✅ + Phase 8-A ✅ + Phase 8-A+ (Production Scaling) ✅
-**Last task completed:** Migrated backend hosting Railway → **Render** (free tier, no credit card). Live & healthy (2026-06-05).
-**Next task to do:** Update Flutter apps' API base URL (Railway → Render URL) in customer_app / admin_dashboard, rebuild APKs. Then Phase 7.3 pilot.
-**Production URL:** https://dhav-backend.onrender.com  ⚠️ (was Railway — verify exact URL in Render dashboard if it has a suffix)
-**Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅
+**Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).
+**Architecture (current):** FastAPI on Render + **Supabase PostgreSQL** (all data) + Supabase Storage; Firebase = Auth + FCM only; Remote Config for customer-app home UI.
+**Last task completed:** Home screen revamp (Zepto/LoveLocal style) + default-address persistence + Remote Config-driven UI; docs brought up to date, ENHANCEMENTS.md created (2026-06-13).
+**Next task to do:** `flutter run` the customer app → visually verify new home + address default flow → rebuild customer APK. Then pilot prep (ENHANCEMENTS.md → Known Gaps).
+**Production URL:** https://dhav-backend.onrender.com ✅ (all 3 apps point here — verified 2026-06-13)
+**Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅ (note: uncommitted working-tree changes pending)
 **Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
 **Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
-**Last updated:** 2026-06-05
+**Last updated:** 2026-06-13
+
+---
+
+## Session 2026-06-13 — Customer home UI revamp + default address + Remote Config
+
+**Current Phase:** Customer app UI polish (pre-pilot)
+**Goal:** Make the home screen compete with Zepto/Blinkit/LoveLocal (reference
+screenshots provided) instead of looking generic, and fix the address/location
+selection logic.
+
+### Address / location logic (the 2 scenarios now implemented)
+1. **No saved address** → app uses live GPS, reverse-geocodes, loads nearby catalog.
+2. **Has saved addresses** → the LAST address the user selected (from the address
+   sheet or Saved Addresses screen) is persisted on-device via `shared_preferences`
+   (`dhav_default_address` key) and restored as the default on every app start —
+   catalog always loads around it. Picking "Use current location" is remembered as
+   a *mode* (sentinel value), so the next launch re-detects fresh GPS instead of
+   pinning stale coordinates. Deleting the default address clears the pref and
+   falls back to the first saved address.
+   - File: `customer_app/lib/core/providers/address_provider.dart` (rewritten).
+
+### Home screen revamp (customer_app/lib/features/home/)
+- `welcome_greeting.dart` — NEW: mascot strip with `assets/images/welcome_charactor.png`
+  saying "कसं काय पुणेकर! 🙏" (Pune flavour, not a copy of the reference's Mumbai line).
+- `hero_banner.dart` — REWRITTEN: taller (152px) auto-scrolling promo carousel with
+  CTA pills, decorative circles, floating emoji; cards come from Remote Config.
+- `deal_of_day.dart` — NEW: green "Deal of the Day" card with live HH:MM:SS countdown
+  to midnight; featured item rotates daily (`dayOfYear % items`), ADD/qty stepper wired
+  to CartProvider.
+- `shops_near_you.dart` — NEW: LoveLocal-style "Shops in Your Area" cards (initials
+  avatar, verified badge, rating chip, "Delivers in ~X min" ETA from distance) with
+  See-all → Stores tab.
+- `home_screen.dart` — two-line location header (label + full address, like
+  Zepto), solid-white search bar with mascot chip ("झटपट"), new sections inserted:
+  Greeting → Banner → Track banner → Categories → Deal of Day → Shops Near You →
+  Order Again → Fresh For You → Trending.
+
+### Remote Config (dynamic UI without APK rebuilds)
+- Added `firebase_remote_config: ^5.1.3` (resolved 5.5.0) to pubspec.
+- NEW `core/providers/ui_config_provider.dart` — keys: `home_greeting_title`,
+  `home_greeting_subtitle`, `home_search_hint`, `home_banners` (JSON array of
+  {title, subtitle, cta, emoji, color_start, color_end}), `home_deal_enabled`,
+  `home_deal_title`. All have in-app defaults → app works identically with zero
+  Firebase console setup; set the same keys in Console → Remote Config to change
+  the home screen live (1h fetch interval).
+- Registered in `main.dart` MultiProvider with fire-and-forget `init()`.
+
+### Verification
+- `flutter pub get` resolves clean; `flutter analyze` on changed paths → 0 errors,
+  only 4 pre-existing deprecation infos.
+- NOT yet run on a device — needs visual check.
+
+### NEXT TIME — START HERE
+1. `cd customer_app && flutter run` — verify: greeting card, banner carousel, deal
+   countdown, shops cards, two-line location header.
+2. Test address flow: select address → kill app → reopen → same address + its catalog
+   loads; "Use current location" → kill → reopen → GPS re-detects.
+3. (Optional) Create the Remote Config keys in Firebase Console to test live UI change.
+4. Then: update API base URL Railway → Render in both apps, rebuild APKs, Phase 7.3 pilot.
 
 ---
 

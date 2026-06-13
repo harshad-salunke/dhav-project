@@ -1,5 +1,14 @@
 # 🛠️ DHAV — Build Plan & Progress Tracker
 
+> ## ✅ ALL BUILD PHASES COMPLETE — PROJECT IS IN ENHANCEMENT MODE (since 2026-06-13)
+> Don't plan work from this file anymore. Current work (UI enhancements, new features,
+> gap-filling, architecture truth) is tracked in **`docs/ENHANCEMENTS.md`** — read that
+> instead. This file stays as the historical record of the original 12-week build.
+>
+> Note: the architecture changed after this plan was written — data moved from Firebase
+> RTDB to **Supabase PostgreSQL**, hosting moved from Railway to **Render**. Firebase
+> remains for Auth + FCM only. See ENHANCEMENTS.md → Current Architecture.
+
 **Purpose:** This is your master roadmap. Every time you sit down to work with Claude CLI, open this file FIRST. It tells you exactly where you are and what to build next.
 
 **How to use:** When a task is done, mark `[x]`. When you stop a session, note where you stopped in `SESSION_NOTES.md`.
@@ -11,12 +20,12 @@
 - [x] Phase 0: Project Setup (Week 1)
 - [x] Phase 1: Firebase Foundation (Week 1-2)
 - [x] Phase 2: FastAPI Backend Core (Week 2-4)
-- [ ] Phase 3: Store App MVP (Week 4-6)
-- [ ] Phase 4: Customer App MVP (Week 6-8)
+- [x] Phase 3: Store App MVP (Week 4-6)
+- [x] Phase 4: Customer App MVP (Week 6-8)
 - [x] Phase 5: Live Location + Delivery Boy (Week 8-9)
 - [x] Phase 6: Admin Dashboard (Week 9-11)
-- [ ] Phase 7: Testing + Deployment (Week 11-12)
-- [ ] Phase 8: System Design Improvements — Performance (ADDED 2026-05-28)
+- [x] Phase 7: Testing + Deployment (Week 11-12) — *built & deployed; pilot/soft-launch (7.3/7.4) moved to ENHANCEMENTS.md → Known Gaps*
+- [x] Phase 8: System Design Improvements — Performance (ADDED 2026-05-28) — *incl. Postgres migration (old Phase D), done ~2026-06-06*
 
 **Total estimated time:** 12 weeks for solo developer
 
@@ -44,15 +53,15 @@
 ### Phase B — Redis Pub/Sub + Shared Cache (multi-worker)
 - [x] B.1 — Redis Pub/Sub bus (`services/redis_bus.py`) — WS tracking + accept signal across workers; auto-disables without REDIS_URL
 - [x] B.2 — Cross-worker cache invalidation on catalog/store updates (`services/cache.invalidate`)
-- [ ] B.3 — Provision Redis service on Railway + set `REDIS_URL` (manual ops step)
-- [ ] B.4 — Run uvicorn with `--workers N` once Redis is live
+- [ ] B.3 — Provision Redis (Upstash / Render Redis — was "on Railway") + set `REDIS_URL` — *ops step, only when scaling; tracked in ENHANCEMENTS.md*
+- [ ] B.4 — Run uvicorn with `--workers N` once Redis is live — *same*
 
 ### Phase C — CDN + Image Optimization
-- [ ] C.1 — Firebase Storage CDN Cache-Control headers
-- [ ] C.2 — Thumbnail URLs for catalog items
+- ~~C.1 — Firebase Storage CDN Cache-Control headers~~ — *superseded: files now on Supabase Storage (CDN-backed)*
+- [ ] C.2 — Thumbnail URLs for catalog items — *still a valid backlog idea (ENHANCEMENTS.md)*
 
-### Phase D — Database Evolution (Future, 100+ stores)
-- [ ] D.1 — PostgreSQL for catalog + orders (Supabase free tier)
+### Phase D — Database Evolution ✅ DONE EARLY (~2026-06-06)
+- [x] D.1 — PostgreSQL for catalog + orders (Supabase free tier) — *went further: ALL data moved to Supabase Postgres (`services/db.py`, `migrations/`); Firebase kept for Auth + FCM only*
 
 ---
 
@@ -375,19 +384,19 @@
 
 ### 7.2 Deployment
 
-- [x] Backend deployed — https://dhav-backend-production.up.railway.app (Railway, SFO region)
+- [x] Backend deployed — ~~Railway~~ → **https://dhav-backend.onrender.com** (Render free tier, since 2026-06-05)
 - [x] Admin dashboard deployed (Firebase Hosting) — https://dhav-quick-commerce.web.app (2026-05-29)
-- [x] Customer app APK built — 57.2 MB (2026-05-29)
+- [x] Customer app APK built — 57.2 MB (2026-05-29) — *needs rebuild: home revamp + push-driven UI not in this APK*
 - [x] Store app APK built — 56.6 MB (2026-05-29)
-- [x] Both apps point to production backend URL (hardcoded in api_config.dart)
+- [x] All three apps point to the Render URL (verified in api_config.dart, 2026-06-13)
 
-### 7.3 Pre-Launch Pilot
+### 7.3 Pre-Launch Pilot → moved to ENHANCEMENTS.md → Known Gaps
 - [ ] Personally onboard 3 test stores in Kothrud
 - [ ] Test 10 end-to-end orders
 - [ ] Fix any bugs found
 - [ ] Get 3 friends to test customer experience
 
-### 7.4 Soft Launch
+### 7.4 Soft Launch → moved to ENHANCEMENTS.md → Known Gaps
 - [ ] Onboard 20 stores in Kothrud
 - [ ] Distribute flyers
 - [ ] Monitor closely for first week

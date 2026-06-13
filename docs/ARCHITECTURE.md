@@ -1,5 +1,13 @@
 # 🏗️ DHAV — Architecture Deep Dive
 
+> ⚠️ **PARTIALLY OUTDATED (as of 2026-06-13).** This was written for the original
+> Firebase-RTDB-on-Railway design. Since then: ALL data moved to **Supabase PostgreSQL**
+> (`backend/services/db.py`), files to **Supabase Storage**, hosting to **Render**;
+> Firebase now does **Auth + FCM only**. The flows/concepts here (broadcasting waves,
+> geofencing, WebSocket tracking, strikes, settlements) are still accurate in spirit —
+> but anywhere this doc says "Firebase Realtime Database" read "Postgres", and "Railway"
+> read "Render". Current truth table: **`docs/ENHANCEMENTS.md` → Current Architecture**.
+
 This document explains HOW the system works internally. Read this when designing new features or debugging complex issues.
 
 ---

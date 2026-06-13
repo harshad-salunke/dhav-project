@@ -4,6 +4,16 @@
 > This file tracks every system design improvement we implement.
 > Read this to understand what's already been done and what's next.
 
+> **STATUS 2026-06-13: all planned phases here are complete or superseded.**
+> - Phase A ✅, Phase A+ ✅, Phase B code ✅ (Redis *ops* pending, only when scaling)
+> - Phase C — superseded (files moved to Supabase Storage, which is CDN-backed)
+> - Phase D ✅ — done early (~2026-06-06): **ALL data migrated Firebase RTDB → Supabase
+>   PostgreSQL** (`backend/services/db.py`, `backend/migrations/`). Firebase = Auth + FCM only.
+>   This supersedes the Firebase-specific items below (A+.6 `.indexOn`, RTDB rules).
+> - Hosting: Railway → **Render** (2026-06-05); any "Railway" below is historical.
+>
+> New work is tracked in **`docs/ENHANCEMENTS.md`**.
+
 ---
 
 ## 🟢 PHASE A — Quick Wins (In-Memory Cache + Async + GZIP)
@@ -74,13 +84,17 @@
 
 ## 🔴 PHASE D — Database Evolution (Future Scale)
 **Goal:** When we have 100+ stores and 10,000 users
-**Status:** FUTURE — not needed for MVP
+**Status:** ✅ COMPLETE (~2026-06-06) — done much earlier than planned, and went further
 
 ### D.1 — PostgreSQL for Catalog + Orders
-- Move catalog from Firebase → PostgreSQL
-- Keep Firebase for: auth, real-time WebSocket, notifications
-- Use Supabase (free PostgreSQL hosting)
-**Status:** [ ] Not started
+- ~~Move catalog from Firebase → PostgreSQL~~ → **ALL data** moved (catalog, orders, stores,
+  users, settlements, notifications…) to Supabase PostgreSQL via asyncpg
+  (`backend/services/db.py`; schema in `backend/migrations/001_initial_schema.sql`).
+- Firebase kept for: **Auth + FCM only** (RTDB and Firebase Storage removed;
+  files now on Supabase Storage).
+- Supabase pooler details: transaction mode :6543 for app queries
+  (statement_cache_size=0 for PgBouncer), session mode :5432 for migrations/DDL.
+**Status:** [x] Done
 
 ---
 
@@ -165,6 +179,12 @@ Customer app now reacts to FCM order pushes instead of fast-polling:
 - **2026-05-29 — Phase A**: in-memory TTL cache, async catalog reads, GZIP, cache warming.
 - **2026-05-30 — Phase A+**: event-loop unblocking (firebase_async), WS memory-leak fix +
   Redis Pub/Sub tracking, event-driven broadcasting, cross-worker cache invalidation.
+- **2026-06-05 — Hosting**: Railway → Render free tier (`render.yaml`; deploy = git push).
+- **~2026-06-06 — Phase D**: full Firebase RTDB → Supabase PostgreSQL migration
+  (asyncpg pool, JSONB codecs); Supabase Storage replaces Firebase Storage;
+  Firebase reduced to Auth + FCM.
+- **2026-06-13 — Customer app**: Remote Config-driven home UI + persistent default
+  address (see ENHANCEMENTS.md and SYSTEM_DESIGN_NOTES.md Concepts 21–22).
 
 ---
 
@@ -198,6 +218,9 @@ Record the numbers here before we start:
 |------|----------|-----|----------------------|
 | 2026-05-28 | Start with in-memory cache, not Redis | Zero setup, works for single process MVP | Redis needs extra server setup |
 | 2026-05-28 | Keep Firebase, don't migrate to PostgreSQL | Already built, works for current scale | PostgreSQL would need full migration |
+| ~2026-06-06 | **REVERSED**: migrate ALL data to Supabase PostgreSQL | Real relational queries, free tier, SQL migrations; RTDB querying was the bottleneck | Staying on RTDB (rejected — index pain, full-scan risks) |
+| 2026-06-05 | Railway → Render for hosting | Railway free tier became a paid trial; Render is genuinely free (no card) | Fly.io, paying for Railway |
+| 2026-06-13 | Firebase Remote Config for home-screen UI values | Change banners/greeting without APK release; in-app defaults = zero-setup fallback | Backend-served config endpoint (more code, no console UI) |
 | 2026-05-30 | Wrap blocking Firebase SDK in a thread pool (`firebase_async`) instead of switching to an async DB client | Keeps Firebase + all existing logic; one small module unblocks the whole app | Rewriting every query against an async client = huge, risky |
 | 2026-05-30 | Redis as a Pub/Sub *message bus*, keep L1 cache in-memory | Fast local reads + cross-worker correctness; Redis only carries small messages, not big blobs | Putting catalog blobs in Redis adds latency to every read |
 | 2026-05-30 | Redis is OPTIONAL (auto-disable when `REDIS_URL` unset) | Local dev + single-worker prod need zero setup; flip one env var to scale | Hard dependency would block local dev without Redis |
@@ -205,4 +228,5 @@ Record the numbers here before we start:
 
 ---
 
-*Updated: 2026-05-28*
+*Updated: 2026-06-13 — closed out: Phase D done (Postgres), Phase C superseded, hosting on
+Render. Future work lives in `docs/ENHANCEMENTS.md`.*

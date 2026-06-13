@@ -47,7 +47,10 @@
       "Bash(git -C \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\" ls-files --others --exclude-standard)",
       "Bash(git -C \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\" ls-files)",
       "Bash(gh auth *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "PowerShell(flutter analyze *)",
+      "PowerShell(Get-Content \"..\\\\docs\\\\SYSTEM_DESIGN_NOTES.md\" -Tail 40; Write-Output \"---LINECOUNT---\"; \\(Get-Content \"..\\\\docs\\\\SYSTEM_DESIGN_NOTES.md\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(git *)"
     ]
   }
 }

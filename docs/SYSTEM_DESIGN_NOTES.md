@@ -4,6 +4,13 @@
 > This file is YOUR notes. Every time we add a new system design concept, it goes here first.
 > Read this before implementation sessions so you understand WHY we're doing what we're doing.
 
+> 📌 **Reading note (2026-06-13):** the *concepts* below are all still valid and worth
+> learning, but the *examples* written before ~2026-06-06 reference Firebase Realtime
+> Database — the backend has since migrated ALL data to **Supabase PostgreSQL** (Firebase
+> now does Auth + FCM only) and hosting moved Railway → **Render**. In particular,
+> Concept 19 (`.indexOn`) is historical — Postgres indexes (`CREATE INDEX` in
+> `backend/migrations/`) solve that problem now. Current truth: `docs/ENHANCEMENTS.md`.
+
 ---
 
 ## 🎯 The Big Picture — What is "System Design"?
@@ -1283,10 +1290,124 @@ constant polling from thousands of waiting screens would add avoidable load to t
 
 ---
 
-*Last updated: 2026-05-30 — Added the full Production Scaling Deep Dive (Concepts 9–18):
-workers, blocking event loop, concurrent reads, memory leak, Pub/Sub, Redis-on-Railway,
-cache invalidation, event-driven broadcasting, throttling/delta, bounded cache.
-Implementation status lives in SYSTEM_DESIGN_IMPLEMENTATION.md → Phase A+.*
+## 💡 Concept 21: Firebase Remote Config — changing the app WITHOUT shipping an APK
+
+### What it is
+**Remote Config** is a Firebase service that works like a **settings drawer in the cloud** for
+your app. The app ships with a set of **in-app default values** baked into the code. On launch
+it quietly asks Firebase "any overrides for me?" — if you've set values in the Firebase Console,
+they replace the defaults; if you've set nothing (or the phone is offline), the defaults are used
+and the app behaves exactly as shipped. Think of it as a restaurant menu where the printed prices
+are the defaults, but the manager can clip a "today's special" card over any item without
+reprinting the whole menu.
+
+### Why DHAV needed it
+Apps like Zepto/Blinkit change their home screen constantly — festival banners, new greetings,
+seasonal deals. If every text change required `flutter build apk` + re-distributing the APK to
+every customer, the home screen would be frozen for weeks at a time. Remote Config lets us change
+the greeting, banner carousel, search hint, and deal section **from the Firebase Console in
+seconds**, and every customer's app picks it up within an hour.
+
+### Where in our code
+- `customer_app/pubspec.yaml` → `firebase_remote_config: ^5.1.3`
+- **`customer_app/lib/core/providers/ui_config_provider.dart`** — the wrapper. Keys:
+  `home_greeting_title`, `home_greeting_subtitle`, `home_search_hint`,
+  `home_banners` (JSON array of `{title, subtitle, cta, emoji, color_start, color_end}`),
+  `home_deal_enabled`, `home_deal_title`.
+- Consumed by `welcome_greeting.dart`, `hero_banner.dart`, `deal_of_day.dart`, and the home
+  search bar via `context.watch<UiConfigProvider>()`.
+- Registered in `main.dart` with a fire-and-forget `init()` — fetch failures are swallowed.
+
+### Real example
+Ganeshotsav week: open Firebase Console → Remote Config → set `home_greeting_title` to
+"गणपती बाप्पा मोरया! 🙏" and add an orange "Modak essentials" banner to `home_banners` → Publish.
+Every customer sees the festive home screen on their next app open. After the festival, delete
+the overrides — the app falls back to "कसं काय पुणेकर!" automatically. Zero builds, zero installs.
+
+### The graceful-fallback trick (same philosophy as Concept 14)
+Every key has an in-app default, and every parse is wrapped in try/catch falling back to those
+defaults. So: no console setup needed, offline phones work, and a typo in console JSON can never
+blank the home screen — worst case the defaults show.
+
+### Impact / what we gained
+Marketing-speed control over the home screen with engineering-grade safety. The UI is now
+**data**, not code.
+
+### If we had NOT done this
+Every banner/text tweak = rebuild + redistribute an APK that users may never update to. During a
+festival rush you'd be stuck with a stale, generic home screen — exactly what we're trying to
+compete against.
+
+---
+
+## 💡 Concept 22: On-device persistence (SharedPreferences) — the "default address" memory
+
+### What it is
+**SharedPreferences** is a tiny key-value store **on the phone itself** (Android backs it with an
+XML/DataStore file). It survives app restarts but lives only on that device. It's the right home
+for small *preferences* — "which address did this user last pick?" — as opposed to *data* (the
+addresses themselves), which live on the backend.
+
+### Why DHAV needed it
+The address rules we wanted (same as Zepto/Blinkit):
+1. **No saved address** → detect GPS, load the catalog around the phone's live location.
+2. **Has saved addresses** → whatever address the user **last selected** becomes the default:
+   every app start loads the catalog around it, until they pick another.
+3. **"Use current location"** picked explicitly → remember the *choice* but not the coordinates,
+   so next launch re-detects fresh GPS (people move; stale coordinates would be wrong).
+
+Rule 2 and 3 need memory **across restarts**. Keeping it in a provider (RAM) dies with the app;
+storing "last selected" on the backend would cost a network round-trip before the very first
+paint and break weirdly across two devices sharing one account. On-device prefs are instant,
+offline-safe, and per-device — exactly right.
+
+### Where in our code
+`customer_app/lib/core/providers/address_provider.dart`:
+- key `dhav_default_address` stores the selected address as JSON; the sentinel string
+  `__current_location__` stores the "live GPS" mode.
+- `selectAddress()` persists on every selection; `loadAddresses()` →
+  `_restoreDefaultSelection()` re-matches the stored JSON against the freshly fetched address
+  list (so a deleted/edited address can't resurrect); delete/add/edit keep the pref in sync.
+- `home_screen.dart` then loads the catalog around `selected` — or falls back to GPS when
+  nothing is selected.
+
+### Real example
+You add "Home — Kothrud" and "Work — Hinjawadi", select Work on Monday morning, and kill the
+app. Tuesday you open it at home in Kothrud: the app still shows **Work — Hinjawadi** and loads
+Hinjawadi stores, because the default is your *choice*, not your GPS. You tap the header, pick
+"Use current location" → Kothrud catalog loads, and *that mode* is remembered — Wednesday it
+re-detects wherever you are.
+
+### Impact / what we gained
+The app "remembers" the user like the big apps do — no re-picking the address every launch, no
+flash of wrong-location catalog, works offline-first.
+
+### If we had NOT done this
+Every launch would silently reset to the first saved address (or GPS), so a user who orders to
+their office would get their home catalog every morning — wrong stores, wrong availability, and
+an "ugh, this app forgets everything" feeling.
+
+---
+
+## 🎓 Vocabulary Glossary — Session 2026-06-13 additions
+
+| Term | Simple Definition |
+|------|------------------|
+| Remote Config | Firebase's cloud "settings drawer" — override app values from the console, no APK rebuild |
+| In-app defaults | Values baked into the code that apply when Remote Config has nothing / is unreachable |
+| fetchAndActivate | The Remote Config call that downloads overrides and switches them on |
+| Minimum fetch interval | How often the app is allowed to re-ask Firebase for new config (we use 1 h) |
+| SharedPreferences | Tiny on-device key-value store that survives app restarts (per device, not synced) |
+| Sentinel value | A special marker string stored in place of data to encode a *mode* (our `__current_location__`) |
+| Reverse geocoding | Turning GPS coordinates into a human area name ("Kothrud, Pune") |
+| Mascot / brand character | A recognizable character used across the UI to give the app personality |
+
+---
+
+*Last updated: 2026-06-13 — Added Concepts 21–22 (Firebase Remote Config for dynamic home UI,
+SharedPreferences for the persistent default address) from the customer-app home revamp session.
+Earlier: 2026-05-30 Production Scaling Deep Dive (Concepts 9–20). Implementation status lives in
+SYSTEM_DESIGN_IMPLEMENTATION.md.*
 
 > 📌 **Standing rule for future sessions:** whenever we introduce a NEW technology, service,
 > or system-design concept, add it here first using the same template
