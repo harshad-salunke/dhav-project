@@ -1389,6 +1389,76 @@ an "ugh, this app forgets everything" feeling.
 
 ---
 
+## 💡 Concept 23: Editing Remote Config from OUR OWN admin app (REST API + OAuth token minting)
+
+### What it is
+Concept 21 let Firebase Remote Config *drive* the app, but you still had to open the **Firebase
+console** to change a value. This concept closes the loop: our **admin dashboard** edits the home
+top-section itself. The trick is that Remote Config has a **REST API**
+(`firebaseremoteconfig.googleapis.com/v1/projects/{id}/remoteConfig`, GET to read, PUT to publish),
+and our FastAPI backend can call it — it just needs a Google **OAuth2 access token** with the
+`firebase.remoteconfig` scope, which it mints from the **same service-account JSON** it already
+uses for Auth/FCM.
+
+### Why DHAV needed it
+Harshad wanted to recolour and rewrite the whole home top-section (header gradient, greeting,
+search hint, promo banners) from the admin portal — *not* hand-edit JSON in the Firebase console.
+The console is fine for a developer but wrong for running a business day-to-day (festival banner,
+new discount photo, etc.).
+
+### How the pieces fit (end to end)
+```
+Admin web (Home UI screen)  ──PUT /admin/home-config {values}──▶  FastAPI
+        ▲                                                            │
+        │ GET /admin/home-config                                     │ mint OAuth token
+        │                                                            ▼
+        └────────────  reads ────────────  Firebase Remote Config REST API
+                                                  ▲
+Customer app ──fetchAndActivate() (≤1 h)──────────┘
+```
+
+### Where in our code
+- `backend/services/remote_config.py` — `get_home_config()` / `update_home_config()`. Mints the
+  token with `google.oauth2.service_account.Credentials.from_service_account_info(info,
+  scopes=[firebase.remoteconfig])` then `creds.refresh()`. **update reads the live template first**
+  (for its `ETag`) and only overwrites the 8 home keys, so it never clobbers other parameters; it
+  publishes with `If-Match: <etag>` (optimistic concurrency — fails loudly if someone else changed
+  it meanwhile).
+  - **Cached like the catalog (Concept 9):** the read is served from the shared `TTLCache`
+    (`cache.HOME_CONFIG_KEY`, 5-min TTL), so the admin Home UI screen loads instantly instead of
+    paying an OAuth mint + REST round-trip every open. On publish we **write-through** the freshly
+    published values onto this worker AND call `cache.invalidate("home_config")` so every *other*
+    worker drops its copy (Concept 17). Net effect: "set a new value from the backend → the cache
+    updates immediately", and Firebase is only hit on a cold cache or a Firebase-console edit.
+- `backend/firebase_init.py` — new `get_service_account_info()` shares the SA JSON with the token mint.
+- `backend/routers/admin.py` — `GET/PUT /admin/home-config` (admin-only).
+- `admin_dashboard/.../home_config_screen.dart` + `home_config_provider.dart` — the visual editor
+  with a live phone preview; banners are decoded from / re-encoded to the `home_banners` JSON string.
+- `customer_app/.../ui_config_provider.dart` — added `home_header_color_start/_end` keys so even the
+  header gradient is remote-driven (default = DHAV teal).
+
+### Real example
+Admin opens **Home UI**, drags the header colour to maroon, sets banner 1's image to a Diwali photo
+with badge "up to 30% OFF", clicks **Publish**. Backend mints a token, PUTs the merged template.
+Within the customer app's 1 h fetch window (or next cold start) every phone shows the new top section
+— no APK rebuild, no Play Store update.
+
+### One-time setup gotcha (IAM)
+The service account must be allowed to write Remote Config. If `PUT` returns **403**, enable the
+**Firebase Remote Config API** in Google Cloud and grant the service account the
+**Firebase Remote Config Admin** role (permission `cloudconfig.configs.update`). Reading may work
+before writing does — 403 on publish is almost always this.
+
+### Impact / what we gained
+Non-developers can run the storefront's hero section like a CMS. The app stays a thin renderer of
+whatever Remote Config says; marketing changes are now a 10-second admin action.
+
+### If we had NOT done this
+Every banner/greeting/colour tweak means opening the Firebase console and editing raw JSON by hand —
+error-prone, developer-only, and impossible to delegate. Or worse: rebuild + re-upload the APK.
+
+---
+
 ## 🎓 Vocabulary Glossary — Session 2026-06-13 additions
 
 | Term | Simple Definition |
@@ -1400,6 +1470,11 @@ an "ugh, this app forgets everything" feeling.
 | SharedPreferences | Tiny on-device key-value store that survives app restarts (per device, not synced) |
 | Sentinel value | A special marker string stored in place of data to encode a *mode* (our `__current_location__`) |
 | Reverse geocoding | Turning GPS coordinates into a human area name ("Kothrud, Pune") |
+| Remote Config REST API | The HTTP endpoint that lets a backend read/publish the RC template (vs the console UI) |
+| OAuth2 access token | Short-lived bearer token minted from a service account to call a Google API with a given scope |
+| Scope | The permission a token is limited to (we use `firebase.remoteconfig`) |
+| ETag / If-Match | A version fingerprint + the header that publishes only if the template hasn't changed since you read it |
+| Optimistic concurrency | "Assume no conflict, but the write fails if someone else edited meanwhile" — safer than blind overwrite |
 | Mascot / brand character | A recognizable character used across the UI to give the app personality |
 
 ---

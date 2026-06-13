@@ -22,7 +22,7 @@
 | File storage | **Supabase Storage** | Firebase Storage removed. |
 | Auth | Firebase Auth (Google + Email/Password) | Unchanged — backend verifies ID tokens. |
 | Push | Firebase FCM | Unchanged — HIGH-priority order alerts, push-driven customer UI. |
-| Dynamic UI | **Firebase Remote Config** (customer app, added 2026-06-13) | Home greeting/banners/deal section changeable from console, in-app defaults as fallback. |
+| Dynamic UI | **Firebase Remote Config** (customer app, added 2026-06-13) | Home header colours/greeting/search/banners/deal — editable from the **admin dashboard "Home UI"** screen (backend `/admin/home-config` → RC REST API) OR the Firebase console; in-app defaults as fallback. |
 | Realtime tracking | WebSocket `/ws/order/{id}/location`, in-memory + optional Redis Pub/Sub | Redis OFF (no `REDIS_URL`) → **run 1 worker only**. |
 | Scheduler | APScheduler in-process | Settlements, suspensions, auto-fail crons. Pauses while Render sleeps. |
 | Customer app | Flutter (`com.dhav.customer`) | Points to Render URL ✅ |
@@ -32,6 +32,46 @@
 ---
 
 ## ✅ ENHANCEMENT LOG (newest first)
+
+### 2026-06-13 (#3) — Admin-controlled home top-section, end to end (Remote Config CMS)
+- **You can now edit the customer home top-section from the admin dashboard** (no Firebase
+  console, no APK rebuild): header gradient colours, greeting title/subtitle, search hint,
+  Deal toggle/title, and the full promo-banner carousel (title/subtitle/cta/badge/emoji/
+  image URL/colours) — with a **live phone preview**. New "Home UI" sidebar item.
+- **Backend** `services/remote_config.py` talks to the Firebase Remote Config **REST API**,
+  minting an OAuth2 token (`firebase.remoteconfig` scope) from the existing service account.
+  New admin endpoints `GET/PUT /admin/home-config` (read merges only the 8 home keys, publish
+  uses `If-Match` etag concurrency). `firebase_init.py` gained `get_service_account_info()`.
+  `requirements.txt` pins `google-auth==2.53.0`.
+- **Customer app**: header gradient is now remote-driven too (`home_header_color_start/_end`,
+  default DHAV teal). Concept 23 added to SYSTEM_DESIGN_NOTES.md.
+- **Cached** like catalog: the admin read is served from the shared `TTLCache`
+  (`home_config` key, 5-min TTL) so the Home UI screen loads instantly; **publish does a
+  write-through + cross-worker `cache.invalidate("home_config")`**, so a new value updates the
+  cache immediately (no stale reads). Firebase is only hit on a cold cache or a console-side edit.
+- ⚠️ **One-time setup**: if `Publish` returns 403, enable the **Firebase Remote Config API**
+  in Google Cloud + grant the service account **Firebase Remote Config Admin** role.
+- **Status: code-complete; backend boots (87 routes, both home-config routes present); all
+  changed Dart files analyzer-clean (0 errors). NOT yet run against live Firebase / device.**
+
+### 2026-06-13 (#2) — Image promo banners + Romanized Marathi (LoveLocal-style top section)
+- **Hero banner now supports background photos** (`hero_banner.dart` rewritten): each
+  Remote Config banner can set `image_url` → full-bleed promo photo with a left→right
+  dark scrim for text legibility + an optional `badge` chip ("up to 20% OFF"), matching
+  the LoveLocal "Meaty Delights" reference. No `image_url` → falls back to the old
+  gradient + floating-emoji card. Banner height 152→168px. Whole card is tappable.
+- **Remote Config schema extended** (`ui_config_provider.dart`): `HomeBannerConfig` gained
+  `image_url` + `badge` fields (back-compatible — both optional). Default banner set now
+  ships one image banner (Unsplash veggies) + two gradient banners.
+- **All home-screen Marathi de-Devanagari'd → Romanized English** per request: greeting
+  "कसं काय पुणेकर" → "Kasa kay, Punekar!", subtitle Romanized, search chip "झटपट" → "Zatpat".
+  Fonts switched `notoSansDevanagari`→`inter` in greeting + banner + chip. (Language-PICKER
+  labels "मराठी"/"हिंदी" left in native script — that's correct UX.)
+- To change a banner live: Firebase Console → Remote Config → `home_banners` JSON array
+  (set `image_url`/`badge`/`title`/`cta`/colors). Editing this from the admin Flutter app
+  is NOT wired yet — see backlog.
+- **Status: code-complete, analyzer clean (0 errors; only 4 pre-existing deprecation infos).
+  NOT yet device-verified, APK not rebuilt.**
 
 ### 2026-06-13 — Customer home UI revamp + default address + Remote Config
 - Home screen rebuilt to compete with Zepto/Blinkit/LoveLocal: mascot greeting
@@ -73,7 +113,11 @@
 - [ ] Device-verify the new home screen + address flow (`cd customer_app && flutter run`)
 - [ ] Rebuild customer APK (carries home revamp + push-driven UI from 2026-05-30)
 - [ ] Commit or clean the uncommitted admin_dashboard working-tree changes
-- [ ] (Optional) Create the Remote Config keys in Firebase Console to test live UI change
+- [ ] **Grant the service account "Firebase Remote Config Admin" + enable the RC API** so the
+      admin "Home UI" → Publish works (else 403). Then test: edit a banner → Publish → confirm
+      the customer app reflects it after a fetch.
+- [ ] Rebuild + redeploy admin dashboard (`flutter build web` → `firebase deploy --only hosting`)
+      to ship the new "Home UI" editor.
 
 ---
 
@@ -107,8 +151,11 @@
 - Cart: delivery-fee transparency, savings strip, suggested add-ons
 - Order Again: real item images + one-tap reorder of a full past order
 - Customer app localization toggle (EN/MR/HI) — models already carry name_mr/name_hi
-- Festival theming via Remote Config (Ganeshotsav/Diwali banners + greeting)
+- Festival theming via Remote Config (Ganeshotsav/Diwali banners + greeting) — NOTE: the
+  admin "Home UI" editor (2026-06-13 #3) already makes this a 10-second non-dev action.
 - Store ratings shown in nearby-stores API payload (rating exists in detail only)
+- Admin "Home UI" editor polish: drag-reorder banners, image upload to Supabase Storage
+  (today it's an image-URL field), a colour-picker widget (today it's a hex field).
 
 ---
 

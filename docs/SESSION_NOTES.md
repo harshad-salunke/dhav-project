@@ -41,13 +41,119 @@
 
 **Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).
 **Architecture (current):** FastAPI on Render + **Supabase PostgreSQL** (all data) + Supabase Storage; Firebase = Auth + FCM only; Remote Config for customer-app home UI.
-**Last task completed:** Home screen revamp (Zepto/LoveLocal style) + default-address persistence + Remote Config-driven UI; docs brought up to date, ENHANCEMENTS.md created (2026-06-13).
-**Next task to do:** `flutter run` the customer app → visually verify new home + address default flow → rebuild customer APK. Then pilot prep (ENHANCEMENTS.md → Known Gaps).
+**Last task completed:** Admin-controlled home top-section END TO END (admin "Home UI" editor → backend `/admin/home-config` → Firebase Remote Config REST API → customer app). Header colours now remote-driven too (2026-06-13 #3). Before: image banners + Romanized Marathi (#2).
+**Next task to do:** Grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403). Then `flutter run` customer app + run admin web → edit a banner → Publish → confirm it propagates. Rebuild customer APK + redeploy admin web.
 **Production URL:** https://dhav-backend.onrender.com ✅ (all 3 apps point here — verified 2026-06-13)
 **Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅ (note: uncommitted working-tree changes pending)
 **Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
 **Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
 **Last updated:** 2026-06-13
+
+---
+
+## Session 2026-06-13 #3 — Admin-controlled home top-section (Remote Config CMS, end to end)
+
+**Current Phase:** Customer app UI polish + admin tooling
+**Goal:** Let Harshad edit the WHOLE home top section (header colours, greeting, search hint,
+deal, promo banners) from the **admin portal**, persisted in Firebase Remote Config — DHAV's
+teal stays the default, but everything is overridable without an APK rebuild or touching the
+Firebase console.
+
+### Architecture (the loop this closes)
+`admin web (Home UI screen)` → `PUT /admin/home-config` → `backend services/remote_config.py`
+→ Firebase Remote Config REST API. Customer app reads it via `fetchAndActivate()` (≤1h).
+Backend mints its own OAuth2 token (scope `firebase.remoteconfig`) from the existing service
+account — the Python admin SDK can't publish RC templates, so we call the REST API directly.
+
+### Files — backend
+- NEW `services/remote_config.py` — `get_home_config()` / `update_home_config()`. Reads live
+  template for its `ETag`, overwrites only the 8 home keys, publishes with `If-Match` (optimistic
+  concurrency). 8 keys: `home_header_color_start/_end`, `home_greeting_title/_subtitle`,
+  `home_search_hint`, `home_banners`, `home_deal_enabled`, `home_deal_title`.
+- `firebase_init.py` — added `get_service_account_info()` (shares SA JSON with the token mint),
+  refactored `_build_credentials()` to use it.
+- `routers/admin.py` — `GET/PUT /admin/home-config` (admin-only; PUT filters to known keys).
+- `requirements.txt` — pinned `google-auth==2.53.0` (already transitively installed).
+
+### Files — admin_dashboard
+- NEW `core/providers/home_config_provider.dart` — load/save, decodes `home_banners` JSON into an
+  editable list, re-encodes on save.
+- NEW `features/home_config/home_config_screen.dart` — sectioned editor (header colours, greeting
+  & search, deal, banners) + **live phone preview** that recolours/retitles as you type. Reload +
+  Publish buttons; toast on result.
+- Wired: `app_routes.dart` (`homeConfig`), `admin_sidebar.dart` ("Home UI" nav), `main.dart`
+  (provider + route).
+
+### Files — customer_app
+- `core/providers/ui_config_provider.dart` — added `home_header_color_start/_end` defaults +
+  `headerColorStart/End` getters (reuse `HomeBannerConfig._hex`).
+- `features/home/home_screen.dart` — `_buildGradientHeader` now reads those colours (was const
+  AppColors teal).
+
+### Verification
+- Backend: `services.remote_config` imports OK; `main.app` boots with **87 routes**, both
+  `/admin/home-config` (GET+PUT) present.
+- Admin `home_config_screen.dart` → `flutter analyze` **0 issues**; customer changed files →
+  only the 4 pre-existing deprecation infos.
+- NOT yet run against live Firebase (needs the IAM grant below) or on device.
+
+### ⚠️ One-time setup BEFORE Publish works
+Enable the **Firebase Remote Config API** in Google Cloud for `dhav-quick-commerce` AND grant the
+backend's service account the **Firebase Remote Config Admin** role (`cloudconfig.configs.update`).
+A 403 on Publish = this isn't done yet. Reading may succeed before writing does.
+
+### NEXT TIME — START HERE
+1. Do the IAM grant above. Redeploy backend (`git push origin main`).
+2. `cd admin_dashboard && flutter run -d chrome` → Home UI → edit a banner image + colours →
+   Publish → expect the green "Published!" toast (not a 403).
+3. `cd customer_app && flutter run` → confirm header/greeting/banner reflect the published values
+   (may need to relaunch to beat the 1h fetch cache during testing).
+4. Rebuild customer APK; `flutter build web` + `firebase deploy --only hosting` for admin.
+
+---
+
+## Session 2026-06-13 #2 — Image promo banners + Romanized Marathi
+
+**Current Phase:** Customer app UI polish (pre-pilot)
+**Goal:** Make the home top section look modern like the LoveLocal reference
+(real promo photo banner + discount badge), and stop using Devanagari script —
+show Marathi in English letters (Romanized) instead. Keep it all Remote-Config-driven.
+
+### What I did
+- **`hero_banner.dart` `_BannerCard` rewritten** to two visual modes chosen per banner:
+  - `image_url` set → full-bleed `Image.network` + left→right black scrim (0.62→0) so
+    white text stays legible over any photo + optional `badge` chip top-right
+    ("up to 20% OFF"). This is the LoveLocal "Meaty Delights" look.
+  - `image_url` empty → original gradient card with floating emoji + decor circles.
+  - Image `errorBuilder`/`loadingBuilder` return `SizedBox.shrink()` → gradient base
+    shows through, so a bad/slow URL never breaks the banner. Whole card tappable → Stores.
+  - Banner height 152→168px; title/subtitle width-capped to ~0.56/0.52 screen so text
+    never overlaps the photo subject on the right.
+- **`ui_config_provider.dart`**: `HomeBannerConfig` + `image_url` + `badge` (both optional,
+  back-compatible). Default `home_banners` now = 1 image banner (Unsplash veggies, green)
+  + 2 gradient banners. Greeting defaults Romanized: "Kasa kay, Punekar! 🙏" /
+  "Deccan te Hadapsar — tumcha kirana zatpat gharpoch".
+- **Romanized all home Marathi**: greeting title/subtitle (above), `welcome_greeting.dart`
+  fonts `notoSansDevanagari`→`inter`, `home_screen.dart` search chip "झटपट"→"Zatpat" + font.
+  Left language-picker labels "मराठी"/"हिंदी" in native script (correct for a lang toggle).
+
+### How to change a banner live (no APK rebuild)
+Firebase Console → Remote Config → key `home_banners` = JSON array of objects:
+`{title, subtitle, cta, badge, emoji, image_url, color_start, color_end}`. Publish → app
+picks it up within the 1h fetch interval. NOTE: editing this from the **admin Flutter app**
+is NOT built yet (it's a Firebase-Console-only flow today) — logged in ENHANCEMENTS backlog.
+
+### Verification
+- `flutter analyze` on the 4 changed files → 0 errors/warnings; only 4 PRE-EXISTING
+  deprecation infos (`desiredAccuracy`, `withOpacity`) on untouched lines.
+- NOT device-run yet.
+
+### NEXT TIME — START HERE
+1. `cd customer_app && flutter run` → confirm: image banner renders the veggie photo with
+   the "up to 20% OFF" badge + readable white text; greeting reads "Kasa kay, Punekar!".
+2. (Optional) In Firebase Console set `home_banners[0].image_url` to your own promo image
+   to confirm live update.
+3. Rebuild customer APK. Then (optional) build the admin-app banner editor (backlog item).
 
 ---
 

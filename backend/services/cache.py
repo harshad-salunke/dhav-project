@@ -57,6 +57,10 @@ CATALOG_TTL = 300      # 5 minutes
 CATEGORY_TTL = 600     # 10 minutes (categories change rarely)
 STORE_NODE_TTL = 120   # 2 minutes (store name/location rarely changes mid-session)
 USER_PROFILE_TTL = 120 # 2 minutes (role/active status rarely changes mid-session)
+HOME_CONFIG_TTL = 300  # 5 minutes — admin home-UI config (Remote Config read)
+
+# Cache key for the customer-app home-section Remote Config read.
+HOME_CONFIG_KEY = "home_config"
 
 # Cross-worker cache invalidation channel (Redis Pub/Sub).
 CACHE_INVALIDATE_CHANNEL = "cache:invalidate"
@@ -68,6 +72,8 @@ def _clear_local(target: str) -> None:
     if target == "catalog":
         catalog_cache.delete("catalog_all")
         catalog_cache.delete("catalog_categories")
+    elif target == "home_config":
+        catalog_cache.delete(HOME_CONFIG_KEY)
     elif target.startswith("store:"):
         catalog_cache.delete(target)
     elif target == "all":

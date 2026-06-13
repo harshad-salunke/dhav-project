@@ -1,6 +1,7 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 firebase-admin==6.5.0
+google-auth==2.53.0          # OAuth2 token minting for the Remote Config REST API
 asyncpg==0.29.0
 pygeohash==1.2.0
 apscheduler==3.10.4

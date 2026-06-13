@@ -8,6 +8,7 @@ from services import cache
 from services.geofencing import index_store_geofence
 from services.penalties import process_store_failure
 from services.notifications import send_broadcast_notification
+from services import remote_config
 from utils.helpers import now_ms, new_id
 
 router = APIRouter()
@@ -643,3 +644,38 @@ async def get_notification_history(
             "SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1", limit
         )
     return {"notifications": [dict(r) for r in rows], "total": len(rows)}
+
+
+# ── Customer-App Home UI (Firebase Remote Config) ──────────────────────────────
+# Read / publish the customer app's home top-section (header colours, greeting,
+# search hint, promo banners) without opening the Firebase console. The customer
+# app picks up changes on its next Remote Config fetch (1h interval).
+
+@router.get("/home-config")
+async def get_home_config(_: TokenVerifyResponse = Depends(_admin)):
+    try:
+        return await remote_config.get_home_config()
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Remote Config read failed: {e}"
+        )
+
+
+@router.put("/home-config")
+async def update_home_config(body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    # Accept either {"values": {...}} or a bare {...} of keys.
+    values = body.get("values", body)
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=422, detail="Expected a 'values' object")
+    filtered = {k: v for k, v in values.items() if k in remote_config.HOME_KEYS}
+    if not filtered:
+        raise HTTPException(
+            status_code=422, detail="No valid home-config keys provided"
+        )
+    try:
+        result = await remote_config.update_home_config(filtered)
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Remote Config publish failed: {e}"
+        )
+    return {"ok": True, **result}
