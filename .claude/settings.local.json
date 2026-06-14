@@ -50,7 +50,31 @@
       "Bash(git *)",
       "PowerShell(flutter analyze *)",
       "PowerShell(Get-Content \"..\\\\docs\\\\SYSTEM_DESIGN_NOTES.md\" -Tail 40; Write-Output \"---LINECOUNT---\"; \\(Get-Content \"..\\\\docs\\\\SYSTEM_DESIGN_NOTES.md\" | Measure-Object -Line\\).Lines)",
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "Bash(./.venv/Scripts/python.exe -c \"import google.auth, importlib.metadata as m; print\\('google-auth', m.version\\('google-auth'\\)\\); import httpx; print\\('httpx', httpx.__version__\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import services.remote_config as rc; print\\('remote_config OK, keys:', len\\(rc.HOME_KEYS\\)\\); import ast; ast.parse\\(open\\('routers/admin.py',encoding='utf-8'\\).read\\(\\)\\); print\\('admin.py parses OK'\\); import firebase_init; print\\('firebase_init has get_service_account_info:', hasattr\\(firebase_init,'get_service_account_info'\\)\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(gcloud --version)",
+      "Bash(PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe -c ' *)",
+      "Bash(grep -nA3 \"def list_catalog_items\\\\|get\\(\\\\\"/catalog/items\\\\\"\\\\|catalog/items\\\\\"\\)\" routers/admin.py)",
+      "Bash(grep -rnA12 \"CREATE TABLE.*catalog_items\" migrations/)",
+      "Bash(awk END{print NR} *)",
+      "Bash(curl -s \"https://maps.googleapis.com/maps/api/geocode/json?latlng=18.5913,73.7389&region=in&key=AIzaSyBQ44KnU3In9clKOhD4Hk29-etuFERBKhg\")",
+      "PowerShell(Stop-Process *)",
+      "PowerShell($adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; & $adb logcat -d | Select-String -Pattern \"flutter\" | Select-Object -Last 100)",
+      "PowerShell($adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; $pid2 = \\(& $adb shell pidof com.dhav.customer\\).Trim\\(\\); Write-Output \"PID=$pid2\"; & $adb logcat -d --pid=$pid2 | Select-String -Pattern \"flutter|Exception|Error|assert|RenderOb\"  | Select-Object -Last 120)",
+      "PowerShell($r = Invoke-RestMethod -Uri \"https://dhav-backend.onrender.com/catalog/items?limit=200\" -TimeoutSec 90; $items = $r.items; Write-Output \\(\"total items: \" + $items.Count\\); $ids = $items | ForEach-Object { $_.id }; $dups = $ids | Group-Object | Where-Object { $_.Count -gt 1 }; Write-Output \\(\"distinct ids: \" + \\($ids | Sort-Object -Unique\\).Count\\); Write-Output \\(\"duplicate id groups: \" + $dups.Count\\); $dups | Select-Object -First 10 | ForEach-Object { Write-Output \\(\"  id=\" + $_.Name + \" count=\" + $_.Count\\) }; Write-Output \"---- sample item keys ----\"; $items[0].PSObject.Properties.Name -join \", \"; Write-Output \"---- null/empty id count ----\"; \\($items | Where-Object { -not $_.id }\\).Count)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(cd \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\customer_app\"; Start-Sleep -Seconds 75; $adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; Write-Output \"===== FLUTTER STDOUT \\(tail\\) =====\"; Get-Content run_log.txt -Tail 50 -ErrorAction SilentlyContinue; Write-Output \"===== LOGCAT flutter exceptions =====\"; & $adb logcat -d | Select-String -Pattern \"EXCEPTION|════|╡|_elements|_parent|RenderObject|GlobalKey|Failed assertion|home_screen.dart|store_detail|profile_screen|address\" | Select-Object -Last 80)",
+      "PowerShell(cd \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\customer_app\"; Write-Output \"===== FULL STDOUT =====\"; Get-Content run_log.txt -ErrorAction SilentlyContinue; $adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; Write-Output \"===== I/flutter lines =====\"; & $adb logcat -d 2>$null | Select-String -Pattern \"I flutter|E flutter|W flutter\" | Select-Object -Last 60)",
+      "PowerShell($adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; & $adb shell screencap -p /sdcard/_dhav_shot.png; & $adb pull /sdcard/_dhav_shot.png \"C:\\\\Users\\\\Harshad Salunke\\\\Desktop\\\\Kirana Project\\\\customer_app\\\\_dhav_shot.png\"; & $adb shell rm /sdcard/_dhav_shot.png; Write-Output \"done\")",
+      "PowerShell(Out-Null *)",
+      "Bash('/c/Users/Harshad Salunke/AppData/Local/Android/Sdk/platform-tools/adb.exe' logcat -c)",
+      "Bash('/c/Users/Harshad Salunke/AppData/Local/Android/Sdk/platform-tools/adb.exe' shell am force-stop com.dhav.customer)",
+      "Bash(nohup '/c/Users/Harshad Salunke/AppData/Local/Android/Sdk/platform-tools/adb.exe' logcat -v time flutter:I AndroidRuntime:E DartVM:I *:S)",
+      "Bash(echo \"logcat started pid $!\")",
+      "PowerShell($adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; & $adb logcat -d -v brief 2>$null | Select-String -Pattern \"flutter\" | Select-Object -Last 200)",
+      "PowerShell($adb = \"C:\\\\Users\\\\Harshad Salunke\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\"; & $adb devices -l)"
     ]
   }
 }

@@ -41,13 +41,149 @@
 
 **Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).
 **Architecture (current):** FastAPI on Render + **Supabase PostgreSQL** (all data) + Supabase Storage; Firebase = Auth + FCM only; Remote Config for customer-app home UI.
-**Last task completed:** Admin-controlled home top-section END TO END (admin "Home UI" editor → backend `/admin/home-config` → Firebase Remote Config REST API → customer app). Header colours now remote-driven too (2026-06-13 #3). Before: image banners + Romanized Marathi (#2).
-**Next task to do:** Grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403). Then `flutter run` customer app + run admin web → edit a banner → Publish → confirm it propagates. Rebuild customer APK + redeploy admin web.
+**Last task completed:** Store app bug-fix + feature batch (2026-06-14 #2): fixed dashboard showing nothing (`/stores/me` now returns `store_id`); Google reverse-geocoding (full addresses) in both pickers w/ OSM fallback; store can change address from Profile card + Edit sheet (auto re-zones via geohash); fixed operating_hours not saved on registration + matched register hours UI to edit sheet; reworked permission UX (first-run-only gate + skippable + red "permissions missing" home card). Before: "Register Your Store" UX overhaul (2026-06-14 #1).
+**Next task to do:** (1) `git push origin main` to deploy backend (`/stores/me` store_id alias + register operating_hours). (2) Enable **Geocoding API** in Google Cloud + unrestrict key (else apps fall back to OSM). (3) Device-run store app to verify dashboard/address/permission flows. Then the still-pending Remote Config item: grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403), test admin "Home UI" → Publish, rebuild customer APK + redeploy admin web.
 **Production URL:** https://dhav-backend.onrender.com ✅ (all 3 apps point here — verified 2026-06-13)
 **Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅ (note: uncommitted working-tree changes pending)
 **Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
 **Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
-**Last updated:** 2026-06-13
+**Last updated:** 2026-06-14
+
+---
+
+## Session 2026-06-14 (#2) — Store app: dashboard fix, Google addresses, address editing, hours fix, permission UX
+
+**Current Phase:** Enhancement Mode — store app bug-fixes + UX
+**Goal:** Fix store owner's reported issues (dashboard blank, generic addresses, hours not saving,
+permission screen on every launch) and add store-side address editing.
+
+### 1. Dashboard showed nothing (no name, can't toggle open/close; only inventory)
+- **Cause:** `GET /stores/me` returns `dict(row)`; the stores PK column is `id`, but Flutter
+  `Store.fromJson` did `storeId: j['store_id'] as String` → `null as String` throws → parse fails →
+  `StoreProvider._store` stays null (error swallowed in `loadMyStore`). Open/close `Switch` is
+  disabled when `store == null`; title falls back to "KIRANA PARTNER". Inventory works because it
+  uses `/catalog/*` with `requireAuth:false`.
+- **Fix:** `backend/routers/stores.py` `/me` now sets `data["store_id"] = data["id"]`;
+  `store_app/.../models/store.dart` reads `(j['store_id'] ?? j['id'] ?? '')`. Flutter fix alone
+  unblocks vs the live backend.
+
+### 2. Full Google addresses (both apps)
+- OSM/Nominatim can't produce street+landmark+pincode like Google. Added `_googleReverseGeocode`
+  (calls `maps.googleapis.com/maps/api/geocode/json`, returns `results[0].formatted_address`,
+  null→fall back to existing OSM) in **store** `store_location_picker_screen.dart` and **customer**
+  `add_address_map_screen.dart`. Key constant = the existing Maps key in AndroidManifest.
+- **Verified the key returns `REQUEST_DENIED`** → the **Geocoding API is not enabled** on the
+  project. Until enabled (and the key is not Android-app-restricted), apps keep showing OSM
+  addresses. Flagged the unrestricted-key security tradeoff + backend-proxy alternative.
+
+### 3. Store can change its address from the app
+- New **"Store Address" card** in `store_profile_screen.dart` (current address + lat/lng + CHANGE →
+  full-screen `StoreLocationPickerScreen` → `updateProfile(address,lat,lng)`).
+- **Edit Store Info sheet** LOCATION section swapped from inline map + manual lat/lng + GPS to the
+  **same full-screen picker** (`_changeAddress`); removed `geolocator` import, `_useGps`,
+  `_onMarkerDragged`, `_mapController`, `_fetchingGps`.
+- **Zone handling is automatic:** `update_my_profile` recomputes `geohash6`; customer search reads
+  `geohash6` live (`geofencing.py` — no zone table/cache). User's "remove from old zone/update
+  cache" was the OLD Firebase RTDB mental model; not needed now.
+
+### 4. Operating hours
+- 🐞 `POST /stores/register` INSERT **omitted `operating_hours`** → never saved. Added it
+  (default `09:00–22:00`). The **Edit Store Info** hours path already saved fine
+  (`PATCH /stores/me/profile` → `update_my_profile` writes `operating_hours`).
+- Upgraded the **registration** hours UI (`_timeBox`) to the edit sheet's `_timeTile` look
+  (orange sun "Opens At" / indigo moon "Closes At", big time, "Tap to change").
+
+### 5. Permission UX
+- New `core/services/permission_service.dart`: `criticalPermissionsGranted()` (notification +
+  ignoreBatteryOptimizations + systemAlertWindow), `onboardingSeen()` / `markOnboardingSeen()`
+  (shared_preferences `perm_onboarding_seen`).
+- **Splash** shows the gate **only first launch**; afterwards → dashboard/delivery-home directly.
+- **Permission gate** now: nullable `nextRoute` (set=replace to next, null=pop back), **"Skip for
+  now"/"Close"** button, `canPop:true` (back allowed; leaving marks seen). `main.dart` route no
+  longer defaults the arg to dashboard. Removed `flutter/services` import (no more SystemNavigator).
+- **Dashboard** `_PermissionWarningBanner` (red, tappable) shows when any pollable permission is
+  missing → opens gate → re-checks on return + on `AppLifecycleState.resumed` → auto-clears.
+  Full-screen-intent excluded (no status API). Also removed a pre-existing unused `orderProv`.
+
+### Files
+- backend: `routers/stores.py` (`/me` store_id alias; register operating_hours).
+- store_app: `models/store.dart`, `features/store/store_profile_screen.dart`,
+  `features/auth/store_location_picker_screen.dart`, `features/auth/store_registration_screen.dart`,
+  `features/auth/permission_gate_screen.dart`, `features/auth/splash_screen.dart`, `main.dart`,
+  `features/dashboard/dashboard_screen.dart`, **NEW** `core/services/permission_service.dart`.
+- customer_app: `features/address/add_address_map_screen.dart`.
+
+### Status
+- All changed store_app files **analyzer-clean (0 issues)**; customer map file only its pre-existing
+  `withOpacity`/`desiredAccuracy` infos; `stores.py` syntax-checked. **NOT device-run.**
+- **No new tech/concept** → nothing added to SYSTEM_DESIGN_NOTES.md (Google Geocoding REST,
+  shared_preferences flag, geohash live-query zones are all already used/known patterns).
+
+### NEXT TIME — START HERE
+- `git push origin main` (deploy backend fixes), enable Google **Geocoding API** + unrestrict key,
+  then `cd store_app && flutter run` to verify dashboard / address change / permission flows.
+
+---
+
+## Session 2026-06-14 — Store app "Register Your Store" UX overhaul
+
+**Current Phase:** Store app UI polish (matching the customer-app quality bar)
+**Goal:** Make store-owner self-onboarding clear, trustworthy and hard to submit incomplete:
+better phone capture, a map-based address picker (reusing the customer add-address UX),
+real operating-hours pickers, a visible "we review your store" promise, terms acceptance, and
+a Submit button that only unlocks when everything required is present.
+
+### Files — store_app
+- **REWROTE `lib/features/auth/store_registration_screen.dart`:**
+  - Under-review **highlight banner** (green) at the top.
+  - **Phone** → `+91` prefix + digits-only + `LengthLimitingTextInputFormatter(10)`, validates
+    exactly 10 digits, submitted as `+91XXXXXXXXXX`.
+  - **Address** field removed → **"Add store address" button** → opens the new map picker; once
+    set, shows a green **"Location pinned"** card (address + lat/lng) + **Edit location**.
+  - **Operating hours** → two tap-to-open **`showTimePicker`** boxes (`TimeOfDay`, formatted
+    `HH:mm`), with an **auto-offline note** ("DHAV takes you offline at your closing time").
+  - **Terms & Conditions** required checkbox + **"Read Terms & Conditions"** `showModalBottomSheet`
+    with 6 partner terms.
+  - **`_isComplete` getter** gates Submit (disabled style + "fill all details" helper) until shop
+    name, owner name, 10-digit phone, location, both times, and T&C are all set. Listeners on the
+    text controllers rebuild the button live.
+- **NEW `lib/features/auth/store_location_picker_screen.dart`** — full-screen draggable Google Map
+  (center `storefront` pin), `StoreLocationResult{lat,lng,address}` returned via `Navigator.pop`.
+  Requests location permission + "Use current location", Nominatim reverse-geocode (OSM, no key,
+  same pattern as customer app), highlight banner, editable "Full shop address / landmark" field,
+  "Confirm store location" CTA. Pune fallback center.
+  - **Functional area search** added: debounced Nominatim `/search` (`countrycodes=in`),
+    suggestion dropdown (`_PlaceSuggestion`) → tap recenters the map + fills the address; clear
+    button + inline spinner; banner hides while the search field is focused. Used OSM (not Google
+    Places) to avoid a billed Places API key — consistent with the existing reverse-geocode call.
+
+### Files — customer_app (search parity)
+- **`lib/features/address/add_address_map_screen.dart`** — the search bar was decorative
+  ("taps open map search in future"). Made it functional with the **same** debounced Nominatim
+  `/search` + `_PlaceSuggestion` dropdown as the store picker; selecting a result recenters the
+  map and updates the area; clear button + spinner; map tooltip hides while searching/focused.
+  Drag-to-pin + GPS were already working. (Matched the file's existing `withOpacity` style → its
+  pre-existing deprecation infos remain; 0 errors.)
+
+### Notes / decisions
+- Backend + `auth_service.registerStore` contract **unchanged** — still
+  name/shop/phone/address/lat/lng/(operating_hours open+close). We just feed it cleaner data.
+- Phone now carries `+91`; `earnings_screen` UPI derivation already strips non-digits, so safe.
+- No new tech/concept → nothing added to SYSTEM_DESIGN_NOTES.md (TimeOfDay picker, route-result
+  return, and Nominatim reverse-geocode are all already used elsewhere).
+
+### Verification
+- `flutter analyze` on both changed files → **No issues found (0)**.
+- NOT yet device-run.
+
+### NEXT TIME — START HERE
+1. `cd store_app && flutter run` → sign in as a new (non-store) user → land on Register Your Store.
+2. Walk it: tap **Add store address** → allow location → confirm the pin/address come back; set
+   open/close times; tick T&C → confirm **Submit** only enables when all are filled; submit →
+   expect the "Awaiting admin verification" snackbar → permission gate → dashboard.
+3. (Optional follow-up) wire the T&C/Partner Policy text to real hosted legal docs — today the
+   6 partner terms live in-app in the bottom sheet (`_termPoints`), which is the canonical source.
+   (Area search is now functional via Nominatim — no Google Places key needed.)
 
 ---
 

@@ -75,24 +75,29 @@ async def register_store(
     store_id = new_id()
     gh = geohash.encode(body.lat, body.lng, precision=6)
     location = {"lat": body.lat, "lng": body.lng, "geohash": gh}
+    operating_hours = (
+        body.operating_hours.model_dump()
+        if body.operating_hours
+        else {"open": "09:00", "close": "22:00"}
+    )
     ts = now_ms()
 
     async with pool().acquire() as conn:
         await conn.execute("""
             INSERT INTO stores (
                 id, owner_uid, owner_name, shop_name, phone, email, address,
-                geohash6, location, is_open, is_active, is_verified, is_suspended,
+                geohash6, location, operating_hours, is_open, is_active, is_verified, is_suspended,
                 strike_count, total_strikes, available_item_ids, total_orders_accepted,
                 total_orders_failed, onboarded_by, rating, onboarding_date, created_at
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,$7,
-                $8,$9::jsonb,false,true,false,false,
+                $8,$9::jsonb,$11::jsonb,false,true,false,false,
                 0,0,'[]'::jsonb,0,
                 0,$2,0,$10,$10
             )
         """, store_id, user.uid, body.owner_name, body.shop_name,
             body.phone, user.email, body.address,
-            gh, location, ts)
+            gh, location, ts, operating_hours)
 
         await conn.execute(
             "UPDATE users SET role='store_owner', store_id=$2 WHERE uid=$1",
@@ -108,7 +113,12 @@ async def get_my_store(user: TokenVerifyResponse = Depends(require_role("store_o
         row = await conn.fetchrow("SELECT * FROM stores WHERE id=$1", store_id)
     if not row:
         raise HTTPException(status_code=404, detail="Store profile not found")
-    return dict(row)
+    data = dict(row)
+    # The stores table PK column is `id`, but the app's Store model keys on
+    # `store_id` (matching the /register + /create responses). Expose both so
+    # the client parses the row instead of failing on a missing `store_id`.
+    data["store_id"] = data["id"]
+    return data
 
 
 @router.patch("/me/profile")

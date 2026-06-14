@@ -33,6 +33,143 @@
 
 ## ✅ ENHANCEMENT LOG (newest first)
 
+### 2026-06-14 (#2) — Store app: dashboard fix, Google addresses, address editing, operating-hours fix, permission UX
+- 🐞 **Store dashboard showed nothing (no shop name, open/close toggle disabled, only inventory
+  worked).** Root cause: `GET /stores/me` returned the raw row whose PK column is `id`, but the
+  Flutter `Store.fromJson` required `store_id` → `null as String` threw → parse failed →
+  `StoreProvider._store` stayed null (the error was swallowed). Inventory was unaffected because it
+  loads from `/catalog/*` with `requireAuth:false`. **Fix (both sides):** backend `/stores/me` now
+  also returns `store_id` (= `id`); `store.dart` reads `j['store_id'] ?? j['id']` defensively. The
+  Flutter fix alone unblocks against the live backend (response already had `id`).
+- **Google reverse-geocoding for full addresses** (was generic "Hinjawadi, Pune" from OSM). Both
+  pickers (`store_app/.../store_location_picker_screen.dart` and
+  `customer_app/.../add_address_map_screen.dart`) now call the **Google Geocoding API** first for a
+  precise `formatted_address`, **falling back to Nominatim/OSM** on any non-OK status (no
+  regression). Uses the existing Maps key in the manifests. ⚠️ **Requires the project to ENABLE the
+  "Geocoding API"** in Google Cloud + the key to have **no Android-app restriction** (verified the
+  API is currently OFF → returns `REQUEST_DENIED` → falls back to OSM until enabled). Security note:
+  an unrestricted in-app key should get a daily quota cap; the clean long-term fix is a backend
+  geocode proxy with an IP-restricted server key.
+- **Store can change its address from the app** (auto-moves delivery zone). New **"Store Address"
+  card** in `store_profile_screen.dart` (current address + pinned lat/lng + **CHANGE** → opens the
+  full-screen `StoreLocationPickerScreen`). The **"Edit Store Info" bottom sheet** LOCATION section
+  was also swapped from the cramped inline 200px map + manual lat/lng + GPS button to the **same
+  full-screen picker** flow (removed `geolocator` import + `_useGps`/`_onMarkerDragged`). On save →
+  `PATCH /stores/me/profile`, which already recomputes `geohash6`. **No zone table/cache to touch** —
+  customer search (`/stores/nearby`, `/items/nearby`) queries `geohash6` live (`geofencing.py`), so
+  the store leaves the old zone and joins the new one on the next query automatically.
+- 🐞 **Operating hours weren't saved on registration.** `POST /stores/register` accepted
+  `operating_hours` but the SQL INSERT omitted the column → silently dropped. **Fix:** added
+  `operating_hours` (default `09:00–22:00`) to the register INSERT (`stores.py`). The **Edit Store
+  Info** hours path already saved correctly (`PATCH /stores/me/profile` → `update_my_profile`).
+  Also **upgraded the registration hours UI** to the same `_timeTile` design as the edit sheet
+  (orange "Opens At" sun / indigo "Closes At" moon, big time, "Tap to change").
+- **Permission screen UX reworked** (was a blocking screen on EVERY launch). New
+  `core/services/permission_service.dart` persists a `perm_onboarding_seen` flag
+  (shared_preferences). Splash now shows the gate **only on first launch**; afterwards it goes
+  straight to dashboard/delivery-home. The gate is now **skippable** ("Skip for now"/"Close",
+  back-button allowed; leaving marks it seen) and accepts a **nullable `nextRoute`** (set =
+  onboarding/replace, null = opened from home/pops back). New **red "Permissions needed" card on
+  the dashboard** (`_PermissionWarningBanner`) shows whenever a pollable alert permission
+  (notifications / ignore-battery / display-over-apps) is missing, opens the gate on tap, and
+  re-checks on return + app-resume so it **clears automatically** once granted. (Full-screen-intent
+  has no status API, so it's intentionally excluded from the card's check.)
+- ⚠️ **Backend changes need a deploy** (`git push origin main` → Render): `/stores/me` `store_id`
+  alias + `/stores/register` operating_hours. **Status: all changed store_app files analyzer-clean
+  (0 issues); customer map file only its pre-existing `withOpacity`/`desiredAccuracy` infos;
+  `stores.py` syntax-checked. NOT yet device-run; Geocoding API not yet enabled.**
+
+### 2026-06-14 — Store app "Register Your Store" UX overhaul
+- **Reworked `store_app/lib/features/auth/store_registration_screen.dart`** (store-owner
+  self-onboarding) to match customer-app polish:
+  - **Prominent "Under review" highlight banner** (green, `verified_user` icon): "Your store is
+    reviewed by DHAV before it goes live… customers within range will see it once verified."
+  - **Mobile number**: fixed **`+91` prefix**, **digits-only + maxLength 10** (input formatters),
+    validates exactly 10 digits. Stored to backend as `+91XXXXXXXXXX`. (earnings UPI derivation
+    already strips non-digits, so no regression.)
+  - **Address is no longer a raw text field** — replaced with an **"Add store address" button**.
+    Tapping it opens a new full-screen map picker (below); once set, the form shows a green
+    **"Location pinned"** card (reverse-geocoded address + lat/lng) with an **Edit location** button.
+  - **Operating hours via tap-to-pick time pickers** (`showTimePicker`, `TimeOfDay`) instead of
+    free-text; highlighted note: *"If you forget to close your shop, DHAV automatically takes you
+    offline at your closing time."*
+  - **Terms & Conditions checkbox** (required) + a **"Read Terms & Conditions"** bottom sheet
+    listing 6 partner terms (verification, accuracy, fulfilment, auto-offline, conduct, fees).
+  - **Submit gating**: "Submit for Verification" is **disabled until ALL required info is present** —
+    shop name, owner name, 10-digit phone, pinned location (lat/lng + address), open + close time,
+    and T&C accepted; helper text explains what's missing.
+- **NEW `store_app/lib/features/auth/store_location_picker_screen.dart`** — full-screen draggable
+  Google Map picker modelled on the customer app's add-address UX, but **returns a
+  `StoreLocationResult{lat,lng,address}`** to the form (doesn't save to a provider). Requests
+  **location permission** + "Use current location", reverse-geocodes the pin via Nominatim
+  (OSM, no key), highlight banner "Pin your shop exactly — only customers within range will see
+  your store", editable "Full shop address / landmark" field, "Confirm store location" CTA.
+  - **Working area search** (top bar): debounced **Nominatim `/search`** (`countrycodes=in`,
+    no API key — chose this over Google Places to avoid a billed key), suggestion dropdown →
+    selecting one recenters the map + fills the address. Clear (✕) + spinner states.
+  - 🐞 **Fix:** the "Full shop address / landmark" field now **re-geocodes on every pin-move**
+    (was filling only once, so it kept showing the default location's address). Tracks a
+    `_userEditedAddress` flag so it stops auto-overwriting once the owner types custom text.
+- **Customer app parity** — `customer_app/lib/features/address/add_address_map_screen.dart`: its
+  search bar was **decorative** ("taps open map search in future"). Wired the **same debounced
+  Nominatim `/search`** + suggestion dropdown → selecting a result recenters the map & sets the
+  area; clear button + spinner; tooltip hides while searching. (Drag-to-pin + GPS already worked.)
+- 🐞 **"Use current location" button was hidden behind the tall bottom card** (fixed `bottom:`
+  offset) in **both** pickers, so after searching you couldn't get back to your GPS spot. Both
+  now anchor the button in a bottom Column **directly above the card** (right-aligned), so it's
+  always visible/tappable regardless of card height. Store on tap re-geocodes; customer recenters.
+- ⚠️ **store_app + customer_app**; backend/service contract unchanged (`registerStore` still takes
+  name/shop/phone/address/lat/lng/open/close). **Status: store files analyzer-clean (0 issues);
+  customer map screen has only the file's pre-existing `withOpacity`/`desiredAccuracy` infos (0
+  errors). NOT yet device-run.**
+
+### 2026-06-13 (#5) — "Welcome to DHAV" sheet + faster config refresh
+- **New welcome bottom sheet** (`welcome_sheet.dart`) modelled on the LoveLocal welcome popup:
+  namaste mascot (`welcome_charactor.png`) peeking over a teal panel with a "Kasa kay, Punekar!"
+  speech bubble, mission line, 4 DHAV promise bullets, and a "Start shopping local" CTA. Opens
+  by tapping the greeting card under the search bar (`welcome_greeting.dart` now tappable + a
+  trailing chevron affordance). DHAV teal + our own wording (not LoveLocal's copy).
+- **Auto-opens once on first launch** (`home_screen.dart` `_maybeShowWelcomeSheet`, gated by a
+  `dhav_welcome_seen` shared_preferences flag); afterwards it's tap-only.
+- **Final polish**: 250px namaste mascot with a gentle bob (`_AnimatedMascot`); speech bubble
+  drawn via `_BubblePainter` (`Path.combine` union body+straight-down tail, no seam), Baloo 2
+  font, an animated rotating saffron→pink→purple gradient (`_SpeechBubble`); content is
+  professional/mostly-English with one Marathi touch ("Kasa kay, Punekar!") + a mission +
+  "EMPOWERING LOCAL RETAILERS" tag; uses "local retailers", not "kirana". Hot-RESTART needed
+  to start the animations (set up in initState).
+- Config propagation sped up (see details under "Faster config propagation" in #4).
+- ⚠️ customer_app only (gitignored / local).
+
+### 2026-06-13 (#4) — Tappable banners (deep links) + position control; removed search-bar Lottie
+- **Banners are now tappable to a destination**, set per-banner from the admin "Home UI" editor:
+  `action_type` = `category` / `item` / `stores` / `search` (default), `action_value` = category
+  name or catalog item id. Customer app routes the tap (`_handleBannerTap` in `home_screen.dart`):
+  category → category browse, item → `ItemDetailScreen`, stores → Stores tab, else → Search.
+- **Banner position is editable**: up/down arrows in the editor reorder the carousel
+  (`moveBanner` in `home_config_provider.dart`); array order = display order.
+- Admin editor banner card gained an **"On tap"** dropdown + conditional value field, plus a
+  "position N of M" hint. New banner template seeds the action fields.
+- **No typing ids/names by hand**: the action value is now a **category dropdown** (real
+  categories) and a **searchable product picker dialog** (loads `/admin/catalog/items` on screen
+  open; shows name + category + id; falls back to a text field if the catalog can't load).
+- 🐞 Fixed a latent admin bug: `AdminCatalogItem.fromJson` read `item_id`, but
+  `/admin/catalog/items` returns the DB column `id` → `itemId` was always empty (also affected
+  edit/delete). Now reads `item_id ?? id`. The picker stores the DB `id`, which equals the
+  customer app's `CatalogItem.id`, so the item deep-link resolves correctly.
+- **Removed the Lottie delivery-bike** animation that rode over the search bar (`home_screen.dart`):
+  dropped the `lottie`/`lottie_utils` imports + scooter `AnimationController`; search bar top
+  margin tightened 38→12. Confirms: the 1st banner image was only an in-app DEFAULT — fully
+  changeable via Remote Config `image_url` like every other banner field.
+- **Faster config propagation**: Remote Config `minimumFetchInterval` is now `Duration.zero`
+  in debug (instant on relaunch/refresh) and 1h in release (`kDebugMode`). Added
+  `UiConfigProvider.refresh()`, wired into home **pull-to-refresh** AND **app-foreground**
+  auto-refresh (`_HomeScreenState` is a `WidgetsBindingObserver`; re-fetches on
+  `AppLifecycleState.resumed`). Reminder: in the Firebase console you must click **Publish
+  changes** for an edit to go live (editing alone doesn't).
+- ⚠️ These are **customer_app + admin_dashboard** changes (both gitignored) — on disk, run
+  locally, NOT in the repo. Backend unchanged this round.
+- **Status: analyzer-clean (admin 0 issues; customer only the 4 pre-existing deprecation infos).**
+
 ### 2026-06-13 (#3) — Admin-controlled home top-section, end to end (Remote Config CMS)
 - **You can now edit the customer home top-section from the admin dashboard** (no Firebase
   console, no APK rebuild): header gradient colours, greeting title/subtitle, search hint,
@@ -110,6 +247,13 @@
 
 ## 🚧 IN PROGRESS / NEEDS VERIFICATION
 
+- [ ] **Deploy backend** (`git push origin main` → Render) to ship the `/stores/me` `store_id`
+      alias + `/stores/register` operating_hours fixes from 2026-06-14 (#2).
+- [ ] **Enable the "Geocoding API"** in Google Cloud for the Maps project + ensure the key has no
+      Android-app restriction (add a daily quota cap), else both apps fall back to OSM addresses.
+      Long-term: move geocoding behind a backend proxy with an IP-restricted server key.
+- [ ] Device-run the store app: dashboard loads shop name + open/close toggle; address change from
+      Profile + Edit sheet; first-run permission gate → skip → red home card → grant clears it.
 - [ ] Device-verify the new home screen + address flow (`cd customer_app && flutter run`)
 - [ ] Rebuild customer APK (carries home revamp + push-driven UI from 2026-05-30)
 - [ ] Commit or clean the uncommitted admin_dashboard working-tree changes
