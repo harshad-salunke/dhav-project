@@ -43,6 +43,12 @@ HOME_KEYS = [
     "home_banners",
     "home_deal_enabled",
     "home_deal_title",
+    # Deal of the Day: the admin pins one catalog item, the % off, and when the
+    # deal ends. The customer app applies the discount to that item's price in
+    # the deal card and counts down to `home_deal_ends_at` (epoch millis, UTC).
+    "home_deal_item_id",
+    "home_deal_discount_percent",
+    "home_deal_ends_at",
 ]
 
 

@@ -22,7 +22,7 @@
 | File storage | **Supabase Storage** | Firebase Storage removed. |
 | Auth | Firebase Auth (Google + Email/Password) | Unchanged — backend verifies ID tokens. |
 | Push | Firebase FCM | Unchanged — HIGH-priority order alerts, push-driven customer UI. |
-| Dynamic UI | **Firebase Remote Config** (customer app, added 2026-06-13) | Home header colours/greeting/search/banners/deal — editable from the **admin dashboard "Home UI"** screen (backend `/admin/home-config` → RC REST API) OR the Firebase console; in-app defaults as fallback. |
+| Dynamic UI | **Firebase Remote Config** (customer app, added 2026-06-13) | Home header colours/greeting/search/banners/deal — editable from the **admin dashboard "Home UI"** screen (backend `/admin/home-config` → RC REST API) OR the Firebase console; in-app defaults as fallback. The **Deal of the Day** now carries a real admin-set discount: `home_deal_item_id` + `home_deal_discount_percent` + `home_deal_ends_at` (added 2026-06-14, #3). |
 | Realtime tracking | WebSocket `/ws/order/{id}/location`, in-memory + optional Redis Pub/Sub | Redis OFF (no `REDIS_URL`) → **run 1 worker only**. |
 | Scheduler | APScheduler in-process | Settlements, suspensions, auto-fail crons. Pauses while Render sleeps. |
 | Customer app | Flutter (`com.dhav.customer`) | Points to Render URL ✅ |
@@ -32,6 +32,31 @@
 ---
 
 ## ✅ ENHANCEMENT LOG (newest first)
+
+### 2026-06-14 (#3) — Deal of the Day: real, admin-set discount (product + % + end time)
+- **What changed:** the home "Deal of the Day" card was purely cosmetic — it rotated one item by
+  day-of-year, showed full price (no discount), and counted to midnight. It is now a **real discount
+  the admin sets** from the dashboard "Customer Home UI" screen.
+- **Admin sets (Firebase Remote Config, via `/admin/home-config`):** `home_deal_item_id` (pinned
+  catalog item, searchable picker — blank = rotate daily), `home_deal_discount_percent` (0–100),
+  `home_deal_ends_at` (epoch millis UTC, date+time picker — blank = midnight). Existing
+  `home_deal_enabled`/`home_deal_title` unchanged. New keys added to `remote_config.HOME_KEYS`
+  (backend) so the publish pipeline accepts them; in-app defaults added in `ui_config_provider.dart`.
+- **Customer app (`deal_of_day.dart`):** shows struck-through MRP + green sale price + "X% OFF"
+  chip; counts down to the admin end time (falls back to midnight); **hides the card entirely when
+  the explicit end time has passed**. Adds the item to the cart at the **discounted** price via a new
+  `CatalogItem.copyWith(price:)` — and since the backend totals orders from the client-sent
+  `total_price` (`orders.py:59`), the customer is genuinely charged the sale price (no backend
+  pricing engine needed).
+- **Availability gate (per request):** the deal card only appears if the chosen product is
+  **stocked by a nearby shop** — it requires `item.isAvailable` (which `CatalogProvider.items` sets
+  from `_nearbyItemIds`). A pinned-but-not-nearby product → no card, so we never advertise a deal the
+  customer can't buy.
+- **Scope/known gaps:** discount is **deal-card-only** by design — the same product seen in
+  search/category grids still shows full price; opening the deal's product-detail screen shows full
+  price too. Cart merges by item id, so if the same item is already in the cart at full price, the
+  deal ADD increments at the existing price (edge case). Pricing remains client-trusted app-wide
+  (pre-existing) — a server-side re-price/validation is the clean hardening if deals are abused.
 
 ### 2026-06-14 (#2) — Store app: dashboard fix, Google addresses, address editing, operating-hours fix, permission UX
 - 🐞 **Store dashboard showed nothing (no shop name, open/close toggle disabled, only inventory
