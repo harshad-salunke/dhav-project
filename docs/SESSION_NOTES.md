@@ -41,7 +41,10 @@
 
 **Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).
 **Architecture (current):** FastAPI on Render + **Supabase PostgreSQL** (all data) + Supabase Storage; Firebase = Auth + FCM only; Remote Config for customer-app home UI.
-**Last task completed:** Customer app now **browses only nearby-stocked items** (2026-06-17): new
+**Last task completed:** Address UX fixes (2026-06-17 #3): reliable save (retry + idempotent backend
+endpoint), **instant local-first restore** of the selected address on boot (no network wait), and an
+**"enable location" prompt** when there's no address + no location. Before: Customer app now **browses
+only nearby-stocked items** (2026-06-17): new
 `CatalogProvider.availableItems` getter (items in `_nearbyItemIds`); home grids/trending/category
 chips+browse and search now use it, so non-nearby catalog items are **hidden, not greyed out**. `items`
 getter kept for ID→name lookups (order history/detail). Falls back to full catalog when location
@@ -53,6 +56,44 @@ admin-set discount** (2026-06-14 #3): admin pins a product + % off + end date/ti
 **Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
 **Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
 **Last updated:** 2026-06-14
+
+---
+
+## Session 2026-06-17 (#3) — Address: reliable save + instant restore + enable-location prompt
+
+**Current Phase:** Enhancement Mode — customer app address/UX
+**Goal:** Fix the 3 address pains Harshad reported: (1) save sometimes fails; (2) launch waits on a
+network fetch to figure out the selected address before showing the catalog; (3) no address + no
+location → silently loads a misleading catalog instead of asking to enable location.
+
+**Files modified:**
+- `customer_app/lib/core/providers/address_provider.dart` — new `bootstrapSelection()` (restore last
+  selection from SharedPreferences, no network); `_restoreDefaultSelection` no longer discards an
+  existing selection (re-points to server instance only); `addAddress` retries once on cold-start
+  timeout/5xx.
+- `customer_app/lib/features/home/home_screen.dart` — `initState` uses `bootstrapSelection()` then
+  loads catalog immediately + `loadAddresses()` in background; new `_needLocation` flag; `_detectLocation`
+  shows the prompt (no more Pune fallback) when location off/denied; `_enableLocation` CTA; new
+  `_openAddressSheet()` helper wired to header tap + ComingSoonView; `_buildLocationPrompt()` widget.
+- `backend/routers/customers.py` — `POST /me/addresses` is now idempotent (de-dupe by
+  lat+lng+flat_building) so the client retry can't create duplicates.
+
+### What I did today:
+- Traced "Failed to save" to the Render free-tier cold start (first save after idle > 40 s timeout).
+  Added a single retry + made the endpoint idempotent so the retry is duplicate-safe.
+- The selected address JSON (with lat/lng) was ALREADY persisted on every select — the app just wasn't
+  *using* it on boot; it re-fetched `/customers/me` first. Now it restores locally and renders instantly.
+- No-address + no-location now shows an "enable location" prompt (consistent with the nearby-only catalog).
+
+### What worked:
+- `flutter analyze` on both Dart files: 0 errors (only the files' pre-existing withOpacity/desiredAccuracy
+  infos). `customers.py` py_compile-clean.
+
+### NEXT TIME — START HERE:
+- `git push origin main` to deploy the idempotent `POST /me/addresses` (+ the other pending backend
+  changes). Device-test: kill app with a saved address → reopen → catalog should appear WITHOUT the
+  "detecting/loading then switch" flash; deny location with no saved address → see the prompt → Enable
+  → grants and loads; save an address on a cold backend → should succeed (was failing).
 
 ---
 

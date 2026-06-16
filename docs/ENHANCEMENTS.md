@@ -33,6 +33,43 @@
 
 ## ✅ ENHANCEMENT LOG (newest first)
 
+### 2026-06-17 (#3) — Address: reliable save + instant local-first restore + "enable location" prompt
+- **Problem (3 things Harshad hit):** (1) saving an address **sometimes failed** ("Failed to save
+  address"); (2) on launch the app showed a **loading spinner while it fetched `/customers/me` just to
+  discover which saved address was selected**, *then* loaded the catalog — a needless wait; (3) when
+  the user had **no address and no location**, the app silently loaded a misleading city-wide catalog
+  instead of asking them to enable location.
+- **(1) Save reliability (`address_provider.dart` + `backend/routers/customers.py`):** the real cause
+  was the **free-tier Render cold start** (~1 min after 15-min idle) → the first save times out / 5xx →
+  "Failed to save". `addAddress` now **retries once** (server is warm by the 2nd try; 2 s backoff;
+  retries on timeout/connection error and on 5xx, but NOT on a real 4xx rejection). To make the retry
+  safe, the backend `POST /me/addresses` is now **idempotent** — it de-dupes by `lat`+`lng`+
+  `flat_building`, so a retried request can't create a duplicate address.
+- **(2) Instant local-first restore (`address_provider.dart` + `home_screen.dart`):** new
+  `AddressProvider.bootstrapSelection()` restores the last-selected address **straight from
+  `SharedPreferences` with NO network call** (the full address JSON — incl. lat/lng — was already
+  persisted on every select). Home's `initState` now reads that **synchronously**, loads the catalog
+  for it **immediately**, and only **then** refreshes the saved-address list with `loadAddresses()`
+  **in the background** (was: `await loadAddresses()` blocking the whole feed). `_restoreDefaultSelection`
+  now **never discards** an already-restored selection — it only re-points it to the matching freshly-
+  loaded server instance (for edit/delete index alignment). Net: no more "loading → figure out selected
+  → load catalog" wait; the catalog renders for the saved address on the first frame after boot.
+- **(3) "Enable location" prompt (`home_screen.dart`):** when there's **no saved address AND location
+  is off/denied**, the DHAV tab now shows a friendly full-page **`_buildLocationPrompt`** (pin icon,
+  "Turn on location", "We need your location to show the kirana shops near you…", **Enable location**
+  CTA + **Enter address manually** fallback) instead of loading a city-wide catalog the user can't
+  actually buy from (consistent with the 2026-06-17 "browse only nearby items" change). `_detectLocation`
+  now sets a new `_needLocation` flag when location services are off / permission denied / deniedForever
+  (it no longer falls back to the "Pune" catalog). The CTA `_enableLocation` re-requests permission, or
+  opens **app settings** (deniedForever) / **location settings** (services off), then retries. New
+  `_openAddressSheet()` helper opens the picker and re-syncs the header/area/`_needLocation` state on
+  pick; the header tap + DHAV-tab ComingSoonView "change location" now use it.
+- **Status: analyzer-clean** — `address_provider.dart` 0 issues; `home_screen.dart` only its pre-existing
+  `withOpacity`/`desiredAccuracy` infos (0 errors). `customers.py` `py_compile`-clean.
+- ⚠️ **Needs backend deploy** (`git push origin main` → Render) for the idempotent `POST /me/addresses`
+  (the client retry works against the current backend too, but until deployed a retried timeout *could*
+  still duplicate). customer_app changes are local/gitignored.
+
 ### 2026-06-17 (#2) — "No stores near you yet" scene + Notify-Me waitlist (customer + backend)
 - **Problem:** when the user's location had **no nearby stores**, the home feed showed a tiny card
   and the search screen let them type into a box that could never return results. No clear, friendly
@@ -343,8 +380,8 @@
 - [ ] **Run migration `003_coming_soon_waitlist.sql`** in Supabase (SQL Editor) — creates the
       `coming_soon_waitlist` table the Notify-Me endpoint writes to.
 - [ ] **Deploy backend** (`git push origin main` → Render) to ship `/customers/notify-waitlist`
-      + `/admin/waitlist` (2026-06-17 #2), the `/stores/me` `store_id` alias + `/stores/register`
-      operating_hours fixes from 2026-06-14 (#2).
+      + `/admin/waitlist` (2026-06-17 #2), the **idempotent `POST /me/addresses` de-dupe** (2026-06-17
+      #3), the `/stores/me` `store_id` alias + `/stores/register` operating_hours fixes from 2026-06-14 (#2).
 - [ ] **Enable the "Geocoding API"** in Google Cloud for the Maps project + ensure the key has no
       Android-app restriction (add a daily quota cap), else both apps fall back to OSM addresses.
       Long-term: move geocoding behind a backend proxy with an IP-restricted server key.

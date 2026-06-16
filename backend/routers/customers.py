@@ -81,12 +81,28 @@ async def add_address(
         row = await conn.fetchrow("SELECT saved_addresses FROM users WHERE uid=$1", user.uid)
     addresses = list(row["saved_addresses"] or []) if row else []
     body["created_at"] = now_ms()
-    addresses.append(body)
-    async with pool().acquire() as conn:
-        await conn.execute(
-            "UPDATE users SET saved_addresses=$2::jsonb WHERE uid=$1",
-            user.uid, addresses,
-        )
+
+    # Idempotent: the client retries this POST on a cold-start timeout/5xx, so a
+    # duplicate request must NOT create a duplicate address. De-dupe by pinned
+    # location (lat/lng) + flat_building — if it already exists, return success
+    # without appending again.
+    def _same(a: dict, b: dict) -> bool:
+        try:
+            return (
+                abs(float(a.get("lat") or 0) - float(b.get("lat") or 0)) < 1e-6
+                and abs(float(a.get("lng") or 0) - float(b.get("lng") or 0)) < 1e-6
+                and (a.get("flat_building") or "") == (b.get("flat_building") or "")
+            )
+        except (TypeError, ValueError):
+            return False
+
+    if not any(_same(existing, body) for existing in addresses):
+        addresses.append(body)
+        async with pool().acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET saved_addresses=$2::jsonb WHERE uid=$1",
+                user.uid, addresses,
+            )
     return {"status": "added", "total": len(addresses)}
 
 
