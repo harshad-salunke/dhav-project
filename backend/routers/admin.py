@@ -15,6 +15,36 @@ router = APIRouter()
 _admin = require_role("admin")
 
 
+# ── Coming-soon waitlist (demand for unserved spots) ───────────────────────────
+
+@router.get("/waitlist")
+async def list_waitlist(_: TokenVerifyResponse = Depends(_admin)):
+    """Demand from customers whose spot has no store in range yet, aggregated by
+    area (most-wanted first) so the team can prioritise where to onboard stores.
+    Also returns the raw rows (newest first) for map plotting."""
+    async with pool().acquire() as conn:
+        by_area = await conn.fetch(
+            """
+            SELECT COALESCE(NULLIF(area, ''), 'Unknown') AS area,
+                   COUNT(*)            AS requests,
+                   AVG(lat)            AS avg_lat,
+                   AVG(lng)            AS avg_lng,
+                   MAX(created_at)     AS last_request
+            FROM coming_soon_waitlist
+            GROUP BY 1
+            ORDER BY requests DESC
+            """
+        )
+        rows = await conn.fetch(
+            "SELECT * FROM coming_soon_waitlist ORDER BY created_at DESC LIMIT 500"
+        )
+    return {
+        "by_area": [dict(r) for r in by_area],
+        "entries": [dict(r) for r in rows],
+        "total": len(rows),
+    }
+
+
 # ── Store Management ───────────────────────────────────────────────────────────
 
 @router.get("/stores")

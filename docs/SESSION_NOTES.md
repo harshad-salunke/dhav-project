@@ -41,13 +41,100 @@
 
 **Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).
 **Architecture (current):** FastAPI on Render + **Supabase PostgreSQL** (all data) + Supabase Storage; Firebase = Auth + FCM only; Remote Config for customer-app home UI.
-**Last task completed:** Store app bug-fix + feature batch (2026-06-14 #2): fixed dashboard showing nothing (`/stores/me` now returns `store_id`); Google reverse-geocoding (full addresses) in both pickers w/ OSM fallback; store can change address from Profile card + Edit sheet (auto re-zones via geohash); fixed operating_hours not saved on registration + matched register hours UI to edit sheet; reworked permission UX (first-run-only gate + skippable + red "permissions missing" home card). Before: "Register Your Store" UX overhaul (2026-06-14 #1).
-**Next task to do:** (1) `git push origin main` to deploy backend (`/stores/me` store_id alias + register operating_hours). (2) Enable **Geocoding API** in Google Cloud + unrestrict key (else apps fall back to OSM). (3) Device-run store app to verify dashboard/address/permission flows. Then the still-pending Remote Config item: grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403), test admin "Home UI" → Publish, rebuild customer APK + redeploy admin web.
+**Last task completed:** Customer app now **browses only nearby-stocked items** (2026-06-17): new
+`CatalogProvider.availableItems` getter (items in `_nearbyItemIds`); home grids/trending/category
+chips+browse and search now use it, so non-nearby catalog items are **hidden, not greyed out**. `items`
+getter kept for ID→name lookups (order history/detail). Falls back to full catalog when location
+unknown. Analyzer-clean, customer_app only, backend unchanged. Before: Deal of the Day → **real
+admin-set discount** (2026-06-14 #3): admin pins a product + % off + end date/time on the "Customer Home UI" screen (new RC keys `home_deal_item_id`/`home_deal_discount_percent`/`home_deal_ends_at`); customer card shows MRP strikethrough + sale price + "X% OFF", counts to the admin end time, hides when expired, and adds to cart at the discounted price (backend trusts client price, so it's the real charge). Deal card only shows if the product is stocked by a nearby shop. Before: Store app bug-fix + feature batch (2026-06-14 #2).
+**Next task to do:** (1) `git push origin main` to deploy backend (`/stores/me` store_id alias + register operating_hours + **new HOME_KEYS for the deal discount**). (2) Enable **Geocoding API** in Google Cloud + unrestrict key (else apps fall back to OSM). (3) Device-run store app to verify dashboard/address/permission flows. Then the still-pending Remote Config item: grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403), test admin "Home UI" → set a deal product+discount+end → Publish, rebuild customer APK + redeploy admin web.
 **Production URL:** https://dhav-backend.onrender.com ✅ (all 3 apps point here — verified 2026-06-13)
 **Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅ (note: uncommitted working-tree changes pending)
 **Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
 **Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
 **Last updated:** 2026-06-14
+
+---
+
+## Session 2026-06-17 — Browse only nearby-stocked items (customer app)
+
+**Current Phase:** Enhancement Mode — customer app catalog/UX
+**Goal:** Stop showing the whole catalog. Customers should only see items a nearby shop actually
+stocks, not every catalog product greyed-out as "NOT AVAILABLE".
+
+**Files modified:**
+- `customer_app/lib/core/providers/catalog_provider.dart` — new `availableItems` getter (only items
+  in `_nearbyItemIds`); `search()` + `categoryNames` now read it. `items` getter left as-is (full
+  catalog) for ID→item lookups.
+- `customer_app/lib/features/home/home_screen.dart` — browse list now `catalog.availableItems`; banner
+  category deep-link uses `availableItems`, item deep-link still uses full `catalog.items`.
+
+### What I did today:
+- Found the existing nearby plumbing: `loadCatalog` already fetches `/catalog/items/nearby` into
+  `_nearbyItemIds` and tagged each catalog item `isAvailable`. The app just wasn't *filtering* on it —
+  it greyed items out instead. Added `availableItems` (filter, not tag) and pointed the browsing
+  surfaces at it.
+- Deliberately kept `items` (full catalog) because order history/detail resolve past-order item names
+  by id from it — filtering there would break name display for items no longer nearby.
+
+### What worked:
+- `flutter analyze` on the 3 changed files: only pre-existing `withOpacity`/`desiredAccuracy` infos,
+  0 errors.
+
+### Code I'm uncertain about:
+- Search row still has the "NOT AVAILABLE"/"Sold Out" branch — now unreachable (results are all
+  available). Harmless, left as a defensive fallback; remove later if it bothers.
+- When location is unknown we fall back to the full catalog (can't compute nearby). Matches prior
+  behaviour; confirm on-device that location is resolved before the grid renders so customers don't
+  briefly see the full catalog.
+
+### NEXT TIME — START HERE:
+- Device-run customer app: confirm home/search/categories show only nearby items, and that the
+  "no nearby stores" card/banner appears when out of range. Rebuild APK.
+
+---
+
+## Session 2026-06-14 (#3) — Deal of the Day → real admin-set discount
+
+**Current Phase:** Enhancement Mode — home UI / promotions
+**Goal:** Turn the cosmetic "Deal of the Day" (rotated item, full price, midnight timer) into a real
+discount the admin controls, and only surface it for products actually stocked nearby.
+
+**Files modified:**
+- `backend/services/remote_config.py` — added `home_deal_item_id`, `home_deal_discount_percent`,
+  `home_deal_ends_at` to `HOME_KEYS` (the publish whitelist).
+- `customer_app/lib/core/providers/ui_config_provider.dart` — defaults + getters `dealItemId`,
+  `dealDiscountPercent` (clamped 0–100), `dealEndsAt` (epoch-millis → DateTime?).
+- `customer_app/lib/core/models/catalog_item.dart` — `copyWith` now takes `price:` (to build the
+  discounted cart item).
+- `customer_app/lib/features/home/deal_of_day.dart` — pinned-or-rotating item, nearby-availability
+  gate, MRP strikethrough + sale price + "X% OFF" chip, admin end-time countdown (else midnight),
+  hide-on-expiry, add-to-cart at discounted price.
+- `admin_dashboard/lib/core/providers/home_config_provider.dart` — `dealItemId`/`dealDiscountPercent`
+  /`dealEndsAt` accessors.
+- `admin_dashboard/lib/features/home_config/home_config_screen.dart` — Deal section now has a product
+  picker (reuses `_ItemPickerDialog`), a discount-% field, and a date+time end picker.
+
+### What I did today:
+- Designed around the existing flow: deal is RC-driven and the admin "Home UI" screen already had a
+  product-picker dialog → extended both instead of inventing a new path.
+- Confirmed the backend totals orders from the client-sent `total_price` (`orders.py:59`), so a
+  discounted cart line is the real charge — no backend pricing engine needed (only the HOME_KEYS add).
+- Per a mid-task request: the deal card only renders if the chosen product is `isAvailable`
+  (stocked by a nearby shop), so we never advertise a deal the customer can't buy.
+
+### What worked:
+- `flutter analyze` clean on all changed files in both apps; backend file parses.
+
+### Code I'm uncertain about:
+- Scope is deal-card-only (chosen): same item elsewhere shows full price; product-detail opened from
+  the deal shows full price. If a customer already has the item in cart at full price, the deal ADD
+  increments at the existing price (cart merges by id). Acceptable for now; note if it confuses users.
+
+### NEXT TIME — START HERE:
+- Deploy: `git push origin main` (backend needs the new HOME_KEYS to accept the deal keys on publish).
+- In admin "Customer Home UI": pick a deal product, set a % and an end time, Publish; verify the
+  customer app shows the discounted price + countdown and charges the sale price at checkout.
 
 ---
 

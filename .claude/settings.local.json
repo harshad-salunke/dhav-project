@@ -110,7 +110,20 @@
       "Bash(ls lib/features/search/)",
       "Bash(ls lib/core/widgets/)",
       "Bash(tee /tmp/flutter_run2.log)",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('services/remote_config.py'\\).read\\(\\)\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('services/remote_config.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "mcp__claude_ai_Canva__list-brand-kits",
+      "mcp__claude_ai_Canva__get-design",
+      "mcp__claude_ai_Canva__start-editing-transaction",
+      "mcp__claude_ai_Canva__get-design-content",
+      "mcp__claude_ai_Canva__cancel-editing-transaction",
+      "mcp__claude_ai_Canva__export-design",
+      "mcp__claude_ai_Canva__get-export-formats",
+      "mcp__claude_ai_Canva__get-assets",
+      "mcp__claude_ai_Canva__copy-design",
+      "mcp__claude_ai_Canva__perform-editing-operations",
+      "mcp__claude_ai_Canva__commit-editing-transaction",
+      "Read(//tmp/**)",
+      "Bash(adb -s ZA222WHY7C get-state)"
     ]
   }
 }

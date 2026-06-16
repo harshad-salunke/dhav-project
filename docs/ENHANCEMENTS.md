@@ -33,6 +33,74 @@
 
 ## ✅ ENHANCEMENT LOG (newest first)
 
+### 2026-06-17 (#2) — "No stores near you yet" scene + Notify-Me waitlist (customer + backend)
+- **Problem:** when the user's location had **no nearby stores**, the home feed showed a tiny card
+  and the search screen let them type into a box that could never return results. No clear, friendly
+  message — and "Notify Me" had nowhere to go.
+- **New widget `customer_app/lib/features/home/coming_soon_view.dart` (`ComingSoonView`):** a
+  full-screen, reusable scene modelled on the LoveLocal reference. Uses the Canva isometric
+  kirana-shop illustrations (`shop_kirana/fresh/dairy/bakery/fc.png`) with a **"COMING SOON"
+  signboard** overlaid on the matching `*_board.png` hanging above a gently-bobbing shop, a **"Notify
+  Me"** CTA, and an optional **"Try a different location"** action (opens the address sheet). Hosts a
+  `RefreshIndicator` so pull-to-refresh still re-detects stores. A stable shop illustration is picked
+  per-area via `area.hashCode`.
+- **Accurate wording (deliberate, per Harshad):** the headline is **"No stores near you yet"** —
+  NOT "Coming Soon to <Area>". A user can be *inside* Hinjawadi yet just outside every store's 3 km
+  radius while other Hinjawadi users are served, so claiming the whole area is unserved would be
+  false. The area is used as **context only**: "DHAV is still growing around <Area> — no store covers
+  your spot just yet…" (falls back to "in your area" when the geocode is unknown/denied/detecting).
+- **Notify-Me is now wired end-to-end:**
+  - **Local-first:** persists to `SharedPreferences` (`coming_soon_notified_<area>`) → instant,
+    offline-proof "You're on the list ✓" + snackbar.
+  - **Backend (best-effort):** `POST /customers/notify-waitlist {area, lat, lng}`
+    (`routers/customers.py`, `require_role("customer")`) upserts into a new **`coming_soon_waitlist`**
+    table (migration `backend/migrations/003_coming_soon_waitlist.sql`), idempotent per `(uid, area)`
+    (re-tap refreshes the row, resets `notified`). Failure is swallowed (local confirm stands).
+  - **Admin demand view:** `GET /admin/waitlist` (`routers/admin.py`, admin-only) returns demand
+    **aggregated by area** (request count + avg lat/lng + last_request, most-wanted first) plus the
+    raw rows — so the team can see WHERE to onboard stores next. (Admin **UI** not built — query the
+    endpoint / Supabase directly for now.)
+- **Wired in 3 places** (trigger = `catalog.hasLocation && !catalog.loading &&
+  catalog.allNearbyStores.isEmpty`): **Home DHAV tab** (takes over the whole feed, with
+  pull-to-refresh), **Home "Stores" tab** (`_NearbyStoresList` early-returns the scene, drops the
+  now-pointless store search bar; removed the old "No stores found nearby" placeholder), and the
+  **Search screen** (early-returns the scene with a back button). `!hasLocation` still falls back to
+  the full catalogue (unchanged); the home `_buildNoStoresCard`/`_buildNoNearbyBanner` remain as a
+  fallback for the edge case "stores exist nearby but stock nothing".
+- ⚠️ **Needs:** (1) run migration `003_coming_soon_waitlist.sql` in Supabase; (2) **deploy backend**
+  (`git push origin main` → Render) for the two new routes. The customer app's POST is best-effort,
+  so the UI works before the deploy (just no rows recorded yet).
+- **Gap / follow-up:** the waitlist only *collects* demand — nothing yet sends an FCM push when a
+  store later goes live near a waiting customer (would scan `coming_soon_waitlist` on store
+  verify/activate, haversine-match, push, set `notified=true`).
+- **Status: analyzer-clean** — new Dart file 0 issues; `home_screen.dart`/`search_screen.dart` only
+  their pre-existing `withOpacity`/`desiredAccuracy` infos (0 errors). Backend `customers.py`/
+  `admin.py` `py_compile`-clean. NOT yet device-run / deployed.
+
+### 2026-06-17 — Customer app: browse only nearby-stocked items (hide the rest of the catalog)
+- **Problem:** the customer app browsed the **entire catalog** everywhere (home grids, trending,
+  category chips/browse, search), merely *greying out* items no nearby shop stocked ("NOT AVAILABLE"
+  / "Sold Out"). That advertised products the customer can't actually buy.
+- **Fix (`catalog_provider.dart`):** added a new **`availableItems`** getter = only items whose id is
+  in `_nearbyItemIds` (the set built from `/catalog/items/nearby`). The existing **`items`** getter is
+  unchanged and still returns the FULL catalog (each tagged `isAvailable`) — kept deliberately for
+  **ID→item lookups** (order history/detail resolve past-order item names from it; filtering there
+  would show "unknown item"). `search()` and `categoryNames` now read `availableItems`, so search
+  results and the search category chips only surface nearby products.
+- **Graceful fallback:** when location is unknown (`!_hasLocation`), `availableItems` returns the full
+  catalog (we can't compute "nearby" yet) — same behaviour `items` already had. When location is known
+  but no store is in range, it returns empty → home already shows the "no nearby stores" card/banner.
+- **Home (`home_screen.dart`):** the browse list is now `catalog.availableItems` (was `catalog.items`),
+  which flows into Fresh-For-You, Trending, category chips and category browse. Banner **category**
+  deep-links also open the nearby-only list; banner **item** deep-links still resolve against the full
+  `catalog.items` so a pinned product opens (its detail screen shows availability). Deal-of-the-Day was
+  already nearby-gated via `isAvailable` (unchanged).
+- **Note:** the search-row "NOT AVAILABLE"/"Sold Out" branch is now effectively dead (results are all
+  available) but left in place as a harmless defensive fallback.
+- **Status: analyzer-clean** on the 3 changed files (only the file's pre-existing `withOpacity`/
+  `desiredAccuracy` deprecation infos; 0 errors). customer_app only; backend/API contract unchanged
+  (the `/catalog/items/nearby` endpoint already existed). NOT yet device-run.
+
 ### 2026-06-14 (#3) — Deal of the Day: real, admin-set discount (product + % + end time)
 - **What changed:** the home "Deal of the Day" card was purely cosmetic — it rotated one item by
   day-of-year, showed full price (no discount), and counted to midnight. It is now a **real discount
@@ -272,8 +340,11 @@
 
 ## 🚧 IN PROGRESS / NEEDS VERIFICATION
 
-- [ ] **Deploy backend** (`git push origin main` → Render) to ship the `/stores/me` `store_id`
-      alias + `/stores/register` operating_hours fixes from 2026-06-14 (#2).
+- [ ] **Run migration `003_coming_soon_waitlist.sql`** in Supabase (SQL Editor) — creates the
+      `coming_soon_waitlist` table the Notify-Me endpoint writes to.
+- [ ] **Deploy backend** (`git push origin main` → Render) to ship `/customers/notify-waitlist`
+      + `/admin/waitlist` (2026-06-17 #2), the `/stores/me` `store_id` alias + `/stores/register`
+      operating_hours fixes from 2026-06-14 (#2).
 - [ ] **Enable the "Geocoding API"** in Google Cloud for the Maps project + ensure the key has no
       Android-app restriction (add a daily quota cap), else both apps fall back to OSM addresses.
       Long-term: move geocoding behind a backend proxy with an IP-restricted server key.

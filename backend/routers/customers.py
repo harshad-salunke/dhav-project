@@ -4,7 +4,7 @@ from models.user import TokenVerifyResponse
 from dependencies import require_role
 from services.db import pool
 from services.cache import catalog_cache
-from utils.helpers import now_ms
+from utils.helpers import now_ms, new_id
 
 router = APIRouter()
 
@@ -43,6 +43,33 @@ async def update_profile(
     # Invalidate cached user profile so next request reads fresh role/data
     catalog_cache.delete(f"user:{user.uid}")
     return {"status": "updated"}
+
+
+@router.post("/notify-waitlist")
+async def notify_waitlist(
+    body: dict,
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    """Record a 'Notify me' request from a customer whose spot has no store in
+    delivery range yet. Idempotent per (uid, area): re-tapping refreshes the row
+    (and resets `notified`) rather than creating duplicates."""
+    area = (body.get("area") or "").strip()
+    lat = body.get("lat")
+    lng = body.get("lng")
+    async with pool().acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO coming_soon_waitlist (id, uid, area, lat, lng, notified, created_at)
+            VALUES ($1, $2, $3, $4, $5, false, $6)
+            ON CONFLICT (uid, area) DO UPDATE
+                SET lat = EXCLUDED.lat,
+                    lng = EXCLUDED.lng,
+                    notified = false,
+                    created_at = EXCLUDED.created_at
+            """,
+            new_id(), user.uid, area, lat, lng, now_ms(),
+        )
+    return {"status": "ok"}
 
 
 @router.post("/me/addresses")
