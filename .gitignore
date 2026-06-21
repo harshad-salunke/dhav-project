@@ -26,6 +26,7 @@ build/
 admin_dashboard/
 customer_app/
 store_app/
+customer_app_design_ss/
 # Firebase credentials (NEVER commit these)
 **/firebase-service-account.json
 **/google-services.json
