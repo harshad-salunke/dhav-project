@@ -40,8 +40,14 @@ def _cells_covering_radius(lat: float, lng: float, radius_km: float) -> list[str
 
 
 async def find_nearby_stores_async(customer_lat: float, customer_lng: float,
-                                   radius_km: float) -> list[dict]:
-    """Return open, active, non-suspended stores within radius_km."""
+                                   radius_km: float,
+                                   store_type: str | None = None) -> list[dict]:
+    """Return open, active, non-suspended stores within radius_km.
+
+    When ``store_type`` is given (one of grocery/fruits/electronics/pharmacy) the
+    result is restricted to stores of that marketplace type — this is what keeps
+    an electronics order from ever reaching a grocery store, and vice-versa.
+    """
     from services.db import pool
     cells = _cells_covering_radius(customer_lat, customer_lng, radius_km)
     async with pool().acquire() as conn:
@@ -50,13 +56,15 @@ async def find_nearby_stores_async(customer_lat: float, customer_lng: float,
                    (location->>'lat')::float AS lat,
                    (location->>'lng')::float AS lng,
                    is_active, is_verified,
+                   COALESCE(store_type, 'grocery') AS store_type,
                    COALESCE(is_suspended, false) AS is_suspended
             FROM stores
             WHERE geohash6 = ANY($1)
               AND is_open = true
               AND is_active = true
               AND NOT COALESCE(is_suspended, false)
-        """, cells)
+              AND ($2::text IS NULL OR COALESCE(store_type, 'grocery') = $2)
+        """, cells, store_type)
 
     results = []
     for row in rows:

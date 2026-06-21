@@ -48,7 +48,8 @@ async def _get_store_fcm_tokens(store_ids: list[str]) -> dict[str, str]:
 
 
 async def _run_broadcast(order_id: str, customer_lat: float, customer_lng: float,
-                         item_count: int, total: float, customer_id: str) -> None:
+                         item_count: int, total: float, customer_id: str,
+                         marketplace_type: str = "grocery") -> None:
     event = asyncio.Event()
     _accept_events[order_id] = event
 
@@ -67,7 +68,8 @@ async def _run_broadcast(order_id: str, customer_lat: float, customer_lng: float
             if not row or row["status"] not in ("pending", "broadcasting"):
                 return
 
-            nearby = await find_nearby_stores_async(customer_lat, customer_lng, radius_km)
+            nearby = await find_nearby_stores_async(customer_lat, customer_lng, radius_km,
+                                                     store_type=marketplace_type)
             already_notified: set = set(row["broadcast_store_ids"] or [])
             new_stores = [s for s in nearby if s["store_id"] not in already_notified
                           and not s.get("is_suspended")]
@@ -125,10 +127,12 @@ async def _run_broadcast(order_id: str, customer_lat: float, customer_lng: float
 
 
 def start_broadcast(order_id: str, customer_lat: float, customer_lng: float,
-                    item_count: int, total: float, customer_id: str) -> None:
+                    item_count: int, total: float, customer_id: str,
+                    marketplace_type: str = "grocery") -> None:
     loop = asyncio.get_event_loop()
     task = loop.create_task(
-        _run_broadcast(order_id, customer_lat, customer_lng, item_count, total, customer_id)
+        _run_broadcast(order_id, customer_lat, customer_lng, item_count, total,
+                       customer_id, marketplace_type)
     )
     _active_broadcasts[order_id] = task
     task.add_done_callback(lambda _: _active_broadcasts.pop(order_id, None))

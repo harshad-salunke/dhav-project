@@ -45,6 +45,56 @@ async def update_profile(
     return {"status": "updated"}
 
 
+# ── Wishlist (saved-for-later) ───────────────────────────────────────────────
+
+@router.get("/me/wishlist")
+async def get_wishlist(user: TokenVerifyResponse = Depends(require_role("customer"))):
+    """The customer's saved items, enriched with current catalog data."""
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT c.*
+            FROM wishlist w
+            JOIN catalog_items c ON c.id = w.item_id
+            WHERE w.uid = $1
+            ORDER BY w.created_at DESC
+            """,
+            user.uid,
+        )
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.post("/me/wishlist/{item_id}")
+async def add_to_wishlist(
+    item_id: str,
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    """Add an item to the wishlist. Idempotent per (uid, item_id)."""
+    async with pool().acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO wishlist (uid, item_id, created_at)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (uid, item_id) DO NOTHING
+            """,
+            user.uid, item_id, now_ms(),
+        )
+    return {"status": "added"}
+
+
+@router.delete("/me/wishlist/{item_id}")
+async def remove_from_wishlist(
+    item_id: str,
+    user: TokenVerifyResponse = Depends(require_role("customer")),
+):
+    async with pool().acquire() as conn:
+        await conn.execute(
+            "DELETE FROM wishlist WHERE uid = $1 AND item_id = $2",
+            user.uid, item_id,
+        )
+    return {"status": "removed"}
+
+
 @router.post("/notify-waitlist")
 async def notify_waitlist(
     body: dict,

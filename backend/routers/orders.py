@@ -57,6 +57,9 @@ async def place_order(
     user: TokenVerifyResponse = Depends(require_role("customer")),
 ):
     total_product = sum(item.total_price for item in body.items)
+    handling = max(0.0, body.handling_charge)
+    donation = max(0.0, body.donation_amount)
+    total_customer = total_product + handling + donation
     platform_fee_amount = round(total_product * settings.platform_fee_percentage / 100, 2)
     order_id = new_id()
     ts = now_ms()
@@ -69,21 +72,24 @@ async def place_order(
                 platform_fee_percentage, platform_fee_amount, platform_fee_settled,
                 payment_method, status, broadcast_wave, broadcast_radius_km,
                 broadcast_store_ids, rejected_store_ids, timed_out_store_ids,
-                is_direct_order, estimated_delivery_minutes, created_at
+                is_direct_order, estimated_delivery_minutes, marketplace_type,
+                gstin, donation_amount, handling_charge, delivery_instructions, created_at
             ) VALUES (
                 $1,$1,$2,$3::jsonb,$4::jsonb,
-                $5,0,$5,
-                $6,$7,false,
+                $5,0,$6,
+                $7,$8,false,
                 'cod','pending',0,0,
                 '[]'::jsonb,'[]'::jsonb,'[]'::jsonb,
-                false,30,$8
+                false,30,$9,
+                $10,$11,$12,$13::jsonb,$14
             )
         """, order_id, user.uid,
             body.customer_address.model_dump(),
             [i.model_dump() for i in body.items],
-            total_product,
+            total_product, total_customer,
             settings.platform_fee_percentage, platform_fee_amount,
-            ts)
+            body.marketplace_type,
+            body.gstin, donation, handling, body.delivery_instructions, ts)
 
     start_broadcast(
         order_id=order_id,
@@ -92,6 +98,7 @@ async def place_order(
         item_count=len(body.items),
         total=total_product,
         customer_id=user.uid,
+        marketplace_type=body.marketplace_type,
     )
     return {"order_id": order_id, "status": "broadcasting"}
 
@@ -114,6 +121,9 @@ async def place_direct_order(
         raise HTTPException(status_code=400, detail="Store is suspended")
 
     total_product = sum(item.total_price for item in body.items)
+    handling = max(0.0, body.handling_charge)
+    donation = max(0.0, body.donation_amount)
+    total_customer = total_product + handling + donation
     platform_fee_amount = round(total_product * settings.platform_fee_percentage / 100, 2)
     order_id = new_id()
 
@@ -125,21 +135,24 @@ async def place_direct_order(
                 platform_fee_percentage, platform_fee_amount, platform_fee_settled,
                 payment_method, status, broadcast_wave, broadcast_radius_km,
                 broadcast_store_ids, rejected_store_ids, timed_out_store_ids,
-                is_direct_order, estimated_delivery_minutes, created_at
+                is_direct_order, estimated_delivery_minutes,
+                gstin, donation_amount, handling_charge, delivery_instructions, created_at
             ) VALUES (
                 $1,$1,$2,$3,$4::jsonb,$5::jsonb,
-                $6,0,$6,
-                $7,$8,false,
+                $6,0,$7,
+                $8,$9,false,
                 'cod','broadcasting',1,0,
-                $9::jsonb,'[]'::jsonb,'[]'::jsonb,
-                true,30,$10
+                $10::jsonb,'[]'::jsonb,'[]'::jsonb,
+                true,30,
+                $11,$12,$13,$14::jsonb,$15
             )
         """, order_id, user.uid, body.store_id,
             body.customer_address.model_dump(),
             [i.model_dump() for i in body.items],
-            total_product,
+            total_product, total_customer,
             settings.platform_fee_percentage, platform_fee_amount,
             [body.store_id],
+            body.gstin, donation, handling, body.delivery_instructions,
             now_ms())
 
     fcm_token = store.get("fcm_token")
@@ -314,11 +327,35 @@ async def dispatch_order(
         raise HTTPException(status_code=409, detail="Order must be 'packed' before dispatch")
 
     ws_channel_id = f"order_{order_id}_location"
+
+    # Self-delivery: the OWNER rides this order and shares live GPS (no delivery
+    # partner). Stamp the deliverer fields with the store so (a) the live-location
+    # WebSocket authorizes the owner's uid as the rider (`assigned_delivery_boy_id`)
+    # and (b) the customer's tracking card shows the shop as the deliverer.
     async with pool().acquire() as conn:
-        await conn.execute(
-            "UPDATE orders SET status='out_for_delivery', ws_channel_id=$2 WHERE id=$1",
-            order_id, ws_channel_id,
+        store_row = await conn.fetchrow(
+            "SELECT self_delivery, owner_uid, shop_name, name, phone FROM stores WHERE id=$1",
+            store_id,
         )
+    store = dict(store_row) if store_row else {}
+    self_delivery = bool(store.get("self_delivery")) and not order.get("assigned_delivery_boy_id")
+
+    async with pool().acquire() as conn:
+        if self_delivery:
+            await conn.execute("""
+                UPDATE orders SET
+                    status='out_for_delivery', ws_channel_id=$2,
+                    assigned_delivery_boy_id=$3, delivery_boy_name=$4, delivery_boy_phone=$5
+                WHERE id=$1
+            """, order_id, ws_channel_id,
+                store.get("owner_uid"),
+                store.get("shop_name") or store.get("name") or "Store",
+                store.get("phone") or "")
+        else:
+            await conn.execute(
+                "UPDATE orders SET status='out_for_delivery', ws_channel_id=$2 WHERE id=$1",
+                order_id, ws_channel_id,
+            )
 
     async with pool().acquire() as conn:
         cust_row = await conn.fetchrow("SELECT fcm_token FROM users WHERE uid=$1", order["customer_id"])

@@ -85,19 +85,19 @@ async def register_store(
     async with pool().acquire() as conn:
         await conn.execute("""
             INSERT INTO stores (
-                id, owner_uid, owner_name, shop_name, phone, email, address,
-                geohash6, location, operating_hours, is_open, is_active, is_verified, is_suspended,
+                id, owner_uid, owner_name, shop_name, store_type, phone, email, address,
+                geohash6, location, operating_hours, self_delivery, is_open, is_active, is_verified, is_suspended,
                 strike_count, total_strikes, available_item_ids, total_orders_accepted,
                 total_orders_failed, onboarded_by, rating, onboarding_date, created_at
             ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,
-                $8,$9::jsonb,$11::jsonb,false,true,false,false,
+                $1,$2,$3,$4,$12,$5,$6,$7,
+                $8,$9::jsonb,$11::jsonb,$13,false,true,false,false,
                 0,0,'[]'::jsonb,0,
                 0,$2,0,$10,$10
             )
         """, store_id, user.uid, body.owner_name, body.shop_name,
             body.phone, user.email, body.address,
-            gh, location, ts, operating_hours)
+            gh, location, ts, operating_hours, body.store_type, body.self_delivery)
 
         await conn.execute(
             "UPDATE users SET role='store_owner', store_id=$2 WHERE uid=$1",
@@ -142,6 +142,8 @@ async def update_my_profile(
         updates["address"] = body.address
     if body.operating_hours is not None:
         updates["operating_hours"] = body.operating_hours.model_dump()
+    if body.self_delivery is not None:
+        updates["self_delivery"] = body.self_delivery
 
     if body.lat is not None or body.lng is not None:
         async with pool().acquire() as conn:

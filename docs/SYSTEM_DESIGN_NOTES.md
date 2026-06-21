@@ -1459,6 +1459,70 @@ error-prone, developer-only, and impossible to delegate. Or worse: rebuild + re-
 
 ---
 
+## 💡 Concept 24: One app, four marketplaces — the `marketplace_type` discriminator + type-correct order routing
+
+### What it is
+DHAV went from a single grocery app to **four isolated marketplaces in one app**: `grocery`,
+`fruits`, `electronics`, `pharmacy`. We did NOT build four apps or four databases. Instead we added
+one small **discriminator column**, `marketplace_type` (and its store-side twin `store_type`), to the
+tables that already existed, and we **filter by it everywhere**. A discriminator is just a column
+whose value says "which sub-world does this row belong to" — the cheapest way to partition data that
+shares the same shape.
+
+### Why DHAV needed it
+A fruits buyer must never see a laptop; an electronics order must never ring a kirana store's phone.
+But grocery, fruits, electronics and pharmacy products are all "a thing with a name, price, image,
+unit, brand, stock" — identical shape. Four separate `products_*` tables (or four databases) would
+duplicate every query, endpoint, and index for no reason. One column + a `WHERE marketplace_type = $1`
+gives full isolation with one codebase.
+
+### Where in our code
+- **Schema** (`backend/migrations/004_marketplace_taxonomy.sql`): `marketplace_type` on
+  `catalog_items` + `orders`, `store_type` on `stores`, all defaulting to `'grocery'` so every
+  pre-existing row is valid. Plus two genuinely new tables — **`categories`** and **`subcategories`**
+  — each carrying its own `marketplace_type`, `image_url`, `sort_order`, `is_enabled`.
+- **Reads** (`backend/routers/catalog.py`): every catalog endpoint takes an optional
+  `marketplace_type` query param and skips rows that don't match. The app passes its active tab.
+- **The important one — order routing** (`backend/services/geofencing.py` +
+  `services/broadcasting.py` + `routers/orders.py`): an order now stores its `marketplace_type`, and
+  `find_nearby_stores_async(..., store_type=...)` adds `AND store_type = $X` to the nearby-stores SQL.
+  So when an electronics order broadcasts, the 3-wave search only ever finds **electronics** stores —
+  a grocery store is never even queried, let alone notified. Same column, four behaviours.
+
+### The DB-driven category CMS (the other half)
+Before, "categories" were a **derived list** — `SELECT DISTINCT category FROM catalog_items`. That
+meant the admin could not add an empty category, set its image, reorder it, or disable it. Now
+`/catalog/categories` reads the real `categories` table (admin-managed via `/admin/categories` CRUD +
+`/admin/subcategories`), ordered by `sort_order`, filtered by marketplace. The old derived behaviour
+survives only as a fallback when the table is empty, so older clients don't break.
+
+### Image upload (Supabase Storage REST)
+`POST /admin/upload-image` streams a multipart file straight to a Supabase Storage bucket
+(`dhav-images`) via its REST API (`POST /storage/v1/object/{bucket}/{path}` with the service-role
+bearer token), then returns the public URL. So admins **upload** category/product images instead of
+hunting for a hosted URL — and every image lives in our own storage, referenced by URL in the DB
+(never a hardcoded asset path).
+
+### Real example
+A customer taps the **Electronics** tab. The app calls
+`/catalog/categories?marketplace_type=electronics` → "Mobiles", "Audio", "Laptops"… (the grocery
+"Atta, Rice & Dal" never appears). They add earbuds and checkout; `POST /orders` carries
+`marketplace_type: "electronics"`; broadcasting's wave search runs `… AND store_type='electronics'`,
+so only the electronics store down the road is pinged — the grocery store two doors away never hears
+about it.
+
+### Impact / what we gained
+Four storefronts, four themes, four catalogs, correct order routing — on **one** codebase, one DB,
+one deploy. Adding a fifth marketplace later is "add an enum value + seed some rows", not "build a new
+app". Categories/products/images are now 100% admin-managed data, zero hardcoding.
+
+### If we had NOT done this
+Either four separate apps/databases (4× the build, deploy and maintenance), or one mixed feed where a
+pharmacy search returns power banks and an electronics order rings a vegetable vendor — which is
+exactly the cross-wiring the whole change exists to prevent.
+
+---
+
 ## 🎓 Vocabulary Glossary — Session 2026-06-13 additions
 
 | Term | Simple Definition |
@@ -1476,10 +1540,18 @@ error-prone, developer-only, and impossible to delegate. Or worse: rebuild + re-
 | ETag / If-Match | A version fingerprint + the header that publishes only if the template hasn't changed since you read it |
 | Optimistic concurrency | "Assume no conflict, but the write fails if someone else edited meanwhile" — safer than blind overwrite |
 | Mascot / brand character | A recognizable character used across the UI to give the app personality |
+| Discriminator column | A single column whose value says which sub-world a row belongs to (our `marketplace_type`) — partitions identically-shaped data without separate tables |
+| Marketplace type | grocery / fruits / electronics / pharmacy — the four isolated storefronts in one app |
+| Type-correct routing | Restricting an order's store search to stores of the same marketplace (`AND store_type = $X`) |
+| DB-driven CMS | Categories/subcategories/products stored as editable DB rows (admin-managed), not derived or hardcoded |
+| Multipart upload | Sending a file's bytes in an HTTP form field (how the admin image upload reaches Supabase Storage) |
+| Object storage public URL | A stable web URL to a stored file; we keep the URL in the DB rather than baking image paths into the app |
 
 ---
 
-*Last updated: 2026-06-13 — Added Concepts 21–22 (Firebase Remote Config for dynamic home UI,
+*Last updated: 2026-06-21 — Added Concept 24 (one app / four marketplaces: `marketplace_type`
+discriminator, type-correct order routing, DB-driven category CMS, Supabase Storage image upload).
+Earlier: 2026-06-13 — Added Concepts 21–22 (Firebase Remote Config for dynamic home UI,
 SharedPreferences for the persistent default address) from the customer-app home revamp session.
 Earlier: 2026-05-30 Production Scaling Deep Dive (Concepts 9–20). Implementation status lives in
 SYSTEM_DESIGN_IMPLEMENTATION.md.*

@@ -90,7 +90,11 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
 ### POST `/stores/register`
 **Roles:** Any authenticated user (not `delivery`)  
 **Purpose:** Store owner self-registers — starts unverified  
-**Body:** Same as above minus `owner_uid` (inferred from token)  
+**Body:** Same as above minus `owner_uid` (inferred from token), **plus mandatory
+`"store_type": "grocery|fruits|electronics|pharmacy"`** — determines which marketplace
+catalog the store sees and which orders it receives. Optional `"self_delivery": true`
+— store delivers its own orders (owner rides + shares live GPS, no delivery partner;
+defaults `false`).  
 **Note:** NOT indexed in geofence until admin verifies
 
 ### GET `/stores/me`
@@ -99,7 +103,9 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
 
 ### PATCH `/stores/me/profile`
 **Roles:** `store_owner`  
-**Purpose:** Update store name, phone, hours, address, or location  
+**Purpose:** Update store name, phone, hours, address, location, or `self_delivery`  
+**Body (all optional):** `shop_name`, `owner_name`, `phone`, `address`, `lat`, `lng`,
+`operating_hours`, `self_delivery` (bool — toggle self-delivery on/off)  
 **Note:** If location changes and store is open → re-indexes geofence
 
 ### PATCH `/stores/me/toggle`
@@ -179,12 +185,25 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
   ]
 }
 ```
+**Plus:** `"marketplace_type": "grocery|fruits|electronics|pharmacy"` (default `grocery`) —
+the cart's marketplace. The order is broadcast **only** to stores of this `store_type`, so an
+electronics order never reaches a grocery/fruits/pharmacy store (and vice-versa).  
+**Checkout extras (optional, all default empty/0):** `"gstin": "27ABCDE1234F1Z5"`,
+`"donation_amount": 5`, `"handling_charge": 5`, `"delivery_instructions": ["avoid_calling","no_bell"]`.
+Stored on the order; `total_customer_amount = items + handling + donation`. *(migration 007)*  
 **Response:** `{ "order_id": "...", "status": "broadcasting" }`
 
 ### POST `/orders/direct`
 **Roles:** `customer`  
 **Purpose:** Order directly from a specific store (no waves)  
-**Body:** Same as above + `"store_id": "store123"`
+**Body:** Same as above (incl. checkout extras) + `"store_id": "store123"`
+
+### Wishlist — GET/POST/DELETE `/customers/me/wishlist`
+**Roles:** `customer`  
+- `GET /customers/me/wishlist` → `{ "items": [ <catalog_item> ] }` (saved items, newest first)  
+- `POST /customers/me/wishlist/{item_id}` → add (idempotent) → `{ "status": "added" }`  
+- `DELETE /customers/me/wishlist/{item_id}` → remove → `{ "status": "removed" }`  
+Backed by the `wishlist (uid, item_id)` table *(migration 007)*.
 
 ### GET `/orders` or GET `/orders/customer/me`
 **Roles:** `customer`  
@@ -222,7 +241,10 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
 ### POST `/orders/{order_id}/dispatched`
 **Roles:** `store_owner`  
 **Purpose:** Mark order as out_for_delivery  
-**Side effects:** Sets `ws_channel_id`, FCM to customer: "Out for delivery"
+**Side effects:** Sets `ws_channel_id`, FCM to customer: "Out for delivery". If the store has
+`self_delivery=true` and no delivery partner was assigned, also stamps
+`assigned_delivery_boy_id = owner_uid`, `delivery_boy_name = shop name`, `delivery_boy_phone = store phone`
+— so the live-location WS authorizes the owner as the rider and the customer's tracking card shows the shop.
 
 ### POST `/orders/{order_id}/delivered`
 **Roles:** `store_owner` or `delivery`  
@@ -247,20 +269,33 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
 
 ## Router: `/catalog`
 
+> **Marketplace-aware.** `marketplace_type` ∈ `grocery | fruits | electronics | pharmacy`.
+> Items carry: `marketplace_type`, `category_id`, `subcategory_id`, `brand`, `sku`,
+> `description`, `unit`, `price`, `mrp`, `discount_percent`, `stock_quantity`,
+> `image_url` (primary), `images` (3–5 URL array), `specs` (key→value map).
+
 ### GET `/catalog/categories`
 **Auth:** Public  
-**Purpose:** List all active product categories
+**Query params:** `marketplace_type` (optional)  
+**Purpose:** DB-driven categories (admin-managed `categories` table) — enabled + ordered.
+Falls back to derived category strings only if the table is empty.
+
+### GET `/catalog/subcategories`
+**Auth:** Public  
+**Query params:** `category_id` (optional), `marketplace_type` (optional)  
+**Purpose:** Subcategories (the left rail on the category page).
 
 ### GET `/catalog/items`
 **Auth:** Public  
-**Query params:** `category`, `search`, `limit` (default 50)  
-**Note:** Search matches name, name_hindi, name_marathi
+**Query params:** `category`, `category_id`, `subcategory_id`, `marketplace_type`, `brand`, `search`, `limit` (default 50, max 500)  
+**Note:** Search matches name, brand, name_hindi, name_marathi
 
 ### GET `/catalog/stores/nearby`
 **Auth:** Public  
-**Query params:** `lat`, `lng`, `radius_km` (default 5.0, max 20.0)  
-**Purpose:** Find active, verified, non-suspended stores near a coordinate  
-**Returns:** Stores sorted by distance ascending
+**Query params:** `lat`, `lng`, `radius_km` (default 5.0, max 20.0), `marketplace_type` (optional)  
+**Purpose:** Find active, verified, non-suspended stores near a coordinate; when
+`marketplace_type` is set, only stores of that type are returned.  
+**Returns:** Stores sorted by distance ascending (each includes `store_type`)
 
 ### GET `/catalog/stores/nearby/all`
 **Auth:** Public  
@@ -273,8 +308,8 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
 
 ### GET `/catalog/items/nearby`
 **Auth:** Public  
-**Query params:** `lat`, `lng`, `radius_km`, `category`  
-**Purpose:** Items available across all nearby stores
+**Query params:** `lat`, `lng`, `radius_km`, `category`, `category_id`, `subcategory_id`, `marketplace_type`  
+**Purpose:** Items available across all nearby stores (type-filtered when `marketplace_type` set)
 
 ### POST `/catalog/items`
 **Roles:** `admin`  
@@ -329,9 +364,29 @@ Obtain the Firebase ID Token from `FirebaseAuth.instance.currentUser.getIdToken(
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | GET | `/admin/catalog/items` | All items including inactive (with search/filter) |
-| POST | `/admin/catalog/items` | Create catalog item |
-| PATCH | `/admin/catalog/items/{id}` | Update item |
+| POST | `/admin/catalog/items` | Create catalog item (accepts marketplace_type, category_id, subcategory_id, brand, sku, description, price, mrp, discount_percent, stock_quantity, unit, image_url, images[], specs{}) |
+| PATCH | `/admin/catalog/items/{id}` | Update item (same fields) |
 | DELETE | `/admin/catalog/items/{id}` | Deactivate (soft) or permanent delete |
+
+### Category / Subcategory CMS (Admin — DB-driven, replaces hardcoded categories)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/categories?marketplace_type=` | List categories (incl. disabled), ordered |
+| POST | `/admin/categories` | Create category `{marketplace_type, name, image_url, sort_order, is_enabled}` |
+| PATCH | `/admin/categories/{id}` | Edit (name/image/marketplace/sort/enable) |
+| DELETE | `/admin/categories/{id}?permanent=` | Disable (soft) or permanent delete (+ its subcategories) |
+| POST | `/admin/categories/reorder` | `{order: [id,...]}` → set sort_order by index |
+| GET | `/admin/subcategories?category_id=&marketplace_type=` | List subcategories |
+| POST | `/admin/subcategories` | Create `{category_id, name, image_url, marketplace_type?, sort_order, is_enabled}` |
+| PATCH | `/admin/subcategories/{id}` | Edit |
+| DELETE | `/admin/subcategories/{id}?permanent=` | Disable or delete |
+
+### Image Upload (Admin)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/admin/upload-image?folder=` | Multipart `file` → uploads to Supabase Storage bucket `dhav-images`, returns `{url, path}`. Needs `SUPABASE_SERVICE_KEY` + public bucket. |
 
 ### Analytics
 

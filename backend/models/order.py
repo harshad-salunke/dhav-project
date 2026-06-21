@@ -60,6 +60,15 @@ class Order(BaseModel):
 class PlaceOrderRequest(BaseModel):
     customer_address: OrderAddress
     items: List[OrderItem]
+    # Which marketplace this cart belongs to (grocery|fruits|electronics|pharmacy).
+    # Drives type-correct broadcast routing — the order only ever reaches stores of
+    # this type.
+    marketplace_type: str = "grocery"
+    # ── Checkout extras (optional; captured on the order) ──
+    gstin: str = ""
+    donation_amount: float = 0.0
+    handling_charge: float = 0.0
+    delivery_instructions: List[str] = []
 
 
 class DirectOrderRequest(PlaceOrderRequest):

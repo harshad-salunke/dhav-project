@@ -41,7 +41,26 @@
 
 **Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).
 **Architecture (current):** FastAPI on Render + **Supabase PostgreSQL** (all data) + Supabase Storage; Firebase = Auth + FCM only; Remote Config for customer-app home UI.
-**Last task completed:** Address UX fixes (2026-06-17 #3): reliable save (retry + idempotent backend
+**Last task completed:** **Customer app rebuilt to `customer_app_design_ss/` + multi-marketplace UI
+(2026-06-21)** — Phases 1–5 of `docs/CUSTOMER_APP_REDESIGN_PLAN.md`: marketplace card-tab switcher
+(`marketplace_tab_bar.dart`, whole-app re-theme + catalog reload), DB-driven home category strip/grid,
+left-rail category listing + filter sheet, product detail (carousel + View-details sheet + Select-Unit
+variants + Similar/Top carousels), checkout (Bill-details breakdown + You-might-also-like + wishlist/
+GSTIN/donation/delivery-instructions), orders history+detail rebuilds. New `WishlistProvider`;
+`CatalogItem` gained `groupId`/`rating`/`ratingCount`. **Phase 6 migration written**
+(`007_variants_ratings_checkout.sql`: group_id + ratings + order checkout fields + wishlist table;
+seeds demo ratings). customer_app analyzer-clean (0 errors/0 warnings). ⚠️ **Run 007 in Supabase**
+(ratings then show with no redeploy). **Still ahead: 6b** (order/wishlist endpoint wiring + seed
+group_id), **7** store store_type isolation, **8** admin category/product CRUD, **9** order routing.
+Before — **Store self-delivery (2026-06-21)** — a store can declare `self_delivery` and
+deliver its own orders: the owner rides + streams live GPS, no delivery partner. Reused the existing WS
+location pipeline; the only backend gap was rider auth (the WS matched `accepted_by_store_id` = store row
+id, not the owner's uid), fixed by stamping `assigned_delivery_boy_id = owner_uid` on dispatch (also stamps
+shop name/phone so the customer's existing tracking card shows the shop). New `stores.self_delivery` column
+(migration 006), model/register/profile + dispatch backend changes, `Store.selfDelivery` + registration &
+profile toggles, and an `active_order_screen` that skips the assign step and adds a "Start Delivery & Share
+Location" CTA + LIVE badge + Navigate-in-Maps. Customer/admin = SKIP. Analyzer-clean; needs migration + deploy.
+Before — Address UX fixes (2026-06-17 #3): reliable save (retry + idempotent backend
 endpoint), **instant local-first restore** of the selected address on boot (no network wait), and an
 **"enable location" prompt** when there's no address + no location. Before: Customer app now **browses
 only nearby-stocked items** (2026-06-17): new
@@ -50,12 +69,83 @@ chips+browse and search now use it, so non-nearby catalog items are **hidden, no
 getter kept for ID→name lookups (order history/detail). Falls back to full catalog when location
 unknown. Analyzer-clean, customer_app only, backend unchanged. Before: Deal of the Day → **real
 admin-set discount** (2026-06-14 #3): admin pins a product + % off + end date/time on the "Customer Home UI" screen (new RC keys `home_deal_item_id`/`home_deal_discount_percent`/`home_deal_ends_at`); customer card shows MRP strikethrough + sale price + "X% OFF", counts to the admin end time, hides when expired, and adds to cart at the discounted price (backend trusts client price, so it's the real charge). Deal card only shows if the product is stocked by a nearby shop. Before: Store app bug-fix + feature batch (2026-06-14 #2).
-**Next task to do:** (1) `git push origin main` to deploy backend (`/stores/me` store_id alias + register operating_hours + **new HOME_KEYS for the deal discount**). (2) Enable **Geocoding API** in Google Cloud + unrestrict key (else apps fall back to OSM). (3) Device-run store app to verify dashboard/address/permission flows. Then the still-pending Remote Config item: grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403), test admin "Home UI" → set a deal product+discount+end → Publish, rebuild customer APK + redeploy admin web.
+**Next task to do:** (0) **Run migration `006_self_delivery.sql`** in Supabase + `git push origin main` to deploy the self-delivery backend, then device-test the end-to-end self-delivery flow (store ON → accept → pack → Start Delivery → customer sees shop moving live). (1) `git push origin main` to deploy backend (`/stores/me` store_id alias + register operating_hours + **new HOME_KEYS for the deal discount**). (2) Enable **Geocoding API** in Google Cloud + unrestrict key (else apps fall back to OSM). (3) Device-run store app to verify dashboard/address/permission flows. Then the still-pending Remote Config item: grant the Firebase service account the **Remote Config Admin** role + enable the RC API (else Publish=403), test admin "Home UI" → set a deal product+discount+end → Publish, rebuild customer APK + redeploy admin web.
 **Production URL:** https://dhav-backend.onrender.com ✅ (all 3 apps point here — verified 2026-06-13)
 **Admin Dashboard:** LIVE at https://dhav-quick-commerce.web.app ✅ (note: uncommitted working-tree changes pending)
 **Deploy workflow:** `git push origin main` → Render auto-deploys. Full guide: `backend/deployment_step.md`.
 **Redis:** code ready but OFF (no REDIS_URL) — correct for single-worker pilot. Rule: no Redis → 1 worker only.
-**Last updated:** 2026-06-14
+**Last updated:** 2026-06-21
+
+---
+
+## Session 2026-06-19 — Customer app: full UI redesign (Quick-Commerce polish)
+
+**Current Phase:** Enhancement Mode — customer app UI/UX overhaul
+**Goal:** Make the customer app look premium / modern / fast like Blinkit / Zepto / Instamart,
+**without changing any functionality, APIs, navigation, state, or business logic.** Keep the
+current brand primary **blue `#1E88E5`** (Harshad: do NOT switch to teal/saffron; correct stale
+docs to blue). Research real Quick-Commerce UIs first.
+
+### Research (done first, per request)
+- Pulled & visually reviewed **10 real Blinkit App Store screenshots** (iTunes lookup API →
+  mzstatic CDN): home (delivery-ETA hero, floating search, category strip, promo tiles, product
+  rails with Save₹/% OFF badges + struck MRP), category listing (left rail + 2-col grid, ADD
+  overlapping the image), store grid, gifting, payments, live order tracking. Plus known
+  Zepto/Instamart/BigBasket patterns. Adopted their *structure* in DHAV blue.
+
+### What I did
+- **Design tokens** (new): `core/theme/app_spacing.dart`, `app_radius.dart`, `app_shadows.dart`,
+  `app_text.dart`; expanded `app_colors.dart` (primary unchanged) + wired `app_theme.dart`.
+- **Shared components** (new): `core/widgets/product_card.dart` (`ProductCard` + `ProductRow`),
+  `qty_stepper.dart`, `section_header.dart`, `app_badges.dart`, `app_chip.dart`, `empty_state.dart`;
+  redesigned `dhav_bottom_nav.dart`.
+- **Screens redesigned:** home_screen (full rebuild, same logic/PageView/branches), search_screen,
+  order_history_screen, notifications_screen, item_detail_screen, cart_screen, store_detail_screen
+  (kept the cross-store "Replace cart?" guard). Every other screen inherits the new palette/type via
+  the shared tokens.
+
+### Verification
+- `flutter analyze` (whole customer_app): **0 errors, 0 warnings**; only the pre-existing
+  `withOpacity`/`desiredAccuracy` **infos** remain (baseline). **NOT device-run yet.**
+
+### NEXT TIME — START HERE
+1. `cd customer_app && flutter run` → walk Home → Search → category browse → product detail → cart →
+   place order → Orders → Notifications → Stores tab → store detail. Confirm ADD/stepper, address
+   switch, ComingSoon scene (eyeball mascot on the new `#F6F7F9` bg), Welcome + AI sheets, Deal
+   countdown, banners all still work (logic untouched).
+2. Optional deeper bespoke pass on order tracking / broadcasting / order-detail and the address/
+   welcome/AI/coming-soon sheets (currently token-consistent, not yet individually redesigned).
+
+---
+
+## Session 2026-06-17 (#4) — "Coming Soon" scene: DHAV mascot with an area signboard
+
+**Current Phase:** Enhancement Mode — customer app no-store scene
+**Files modified:** `customer_app/lib/features/home/coming_soon_view.dart`,
+`customer_app/assets/images/coming_soon_mascot.png` (new), `docs/ENHANCEMENTS.md`
+
+### What I did today:
+- Harshad shared a Canva character (design `DAHMwgCFExA`) — a Puneri kirana shopkeeper holding a
+  blank board, with a veggie crate, location pin and a DHAV grocery bag — and a LoveLocal reference
+  screenshot. He wants this same mascot on **every "no store nearby" screen**, with the board reading
+  "Coming Soon to <area>", styled like the reference.
+- Exported the Canva design as PNG (Free plan → no transparent bg) → saved to
+  `assets/images/coming_soon_mascot.png`. Measured the blank board panel with PIL (cream area ≈ x
+  75–275, y 160–355 of 800×1000) and verified a text-overlay preview before coding.
+- Rewrote `ComingSoonView._mascot()`: renders the mascot in a same-aspect (0.8) `BoxFit.contain` box
+  and overlays "COMING SOON" + the area name (FittedBox-shrunk, "Near You" fallback) at fixed board
+  fractions, so text always lands on the board. Kept the bob animation + Notify-Me wiring.
+- Headline changed to **"Coming Soon to <Area>"** (per Harshad, reverting the #2 "No stores near you
+  yet"); subtitle kept accurate ("…no store covers your spot just yet"). Removed old shop/signboard
+  code. No constructor change → all 3 call sites unchanged.
+
+### What worked:
+- Canva MCP export + PIL overlay preview let me nail board text placement without a device run.
+- `flutter analyze coming_soon_view.dart` → **0 issues**.
+
+### What broke / blockers:
+- Not yet device-run — board-text alignment confirmed only via the PIL composite, should eyeball on
+  a real device. Old `shop_*` illustration assets are now orphaned (safe to delete later).
 
 ---
 

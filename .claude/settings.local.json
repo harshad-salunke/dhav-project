@@ -124,7 +124,22 @@
       "mcp__claude_ai_Canva__commit-editing-transaction",
       "Read(//tmp/**)",
       "Bash(adb -s ZA222WHY7C get-state)",
-      "Bash(python -m py_compile routers/customers.py)"
+      "Bash(python -m py_compile routers/customers.py)",
+      "Bash(xargs grep -l \"verify-token\")",
+      "Bash(curl -s -L -o \"/tmp/dhav_mascot.png\" \"https://export-download.canva.com/CFExA/DAHMwgCFExA/-1/0/0001-5634509829996196831.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAQYCGKMUH5AO7UJ26%2F20260616%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260616T232740Z&X-Amz-Expires=57485&X-Amz-Signature=74b7d07f787c673fb3ea791be8b7c6b185eecc255d5bbd0f9af969216c2b10bc&X-Amz-SignedHeaders=host%3Bx-amz-expected-bucket-owner&response-expires=Wed%2C%2017%20Jun%202026%2015%3A25%3A45%20GMT\")",
+      "Bash(cp /tmp/dhav_mascot.png \"./dhav_mascot_preview.png\")",
+      "Read(//c/c/Users/Harshad Salunke/Desktop/Kirana Project/**)",
+      "Bash(cp /tmp/dhav_mascot.png assets/images/coming_soon_mascot.png)",
+      "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")",
+      "Bash(cp mascot_t.png assets/images/coming_soon_mascot.png)",
+      "Bash(rm -f mascot_t.png prev_teal.png prev_white.png final_preview.png)",
+      "Bash(python -c \"from PIL import Image; im=Image.open\\('assets/images/coming_soon_mascot.png'\\); print\\('asset mode/size:', im.mode, im.size\\)\")",
+      "Bash(dart format *)",
+      "Bash(python scripts/build_seed.py)",
+      "Bash(awk '{printf \"%-40s %s\\\\n\", $9, $5}')",
+      "Bash(python -m py_compile models/store.py routers/stores.py routers/orders.py)",
+      "Bash(python -m py_compile services/cache.py routers/admin.py routers/catalog.py)",
+      "Bash(python -m py_compile routers/orders.py routers/customers.py models/order.py)"
     ]
   }
 }

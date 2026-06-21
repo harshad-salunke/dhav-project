@@ -21,6 +21,21 @@ Tech stack (current — see ENHANCEMENTS.md → Current Architecture for the ful
 - **Supabase PostgreSQL** for ALL data (asyncpg) + Supabase Storage for files
 - Firebase for **Auth + FCM only** (+ Remote Config for the customer-app home UI)
 
+Cross-app sync rule (ALWAYS apply — no need to invoke an agent):
+DHAV is four coupled surfaces sharing one source of truth (backend + Supabase Postgres):
+customer_app, store_app, admin_dashboard, backend. For EVERY feature / UI / enhancement request,
+before coding, work out the cross-app dependency chain and decide which OTHER surfaces must also
+change to keep the system consistent — then implement them in the same task. Ask:
+- Does it persist or read data? → needs a backend endpoint + model + (often) a migration. A UI that saves with no backend is a dead feature.
+- Does another surface need to SEE this data? (e.g. customer address → store sees it on the order; store edits price → customer catalog + admin reflect it; order placed/cancelled → store gets it + FCM, admin logs it; admin toggles a store → customer hides/shows it).
+- Does it need an FCM notification? → backend notifications router + the receiving app's notifications feature.
+- Does it add/rename a field or change an API contract? → backend model + migration + EVERY app that reads/writes it, and update backend/API_REFERENCE.md.
+Decide per-surface REQUIRED / OPTIONAL / SKIP (with a one-line reason for SKIP) — NOT everything
+needs every app, only where it genuinely depends. State this sync plan first, then implement
+backend-first (model → migration → endpoint → API_REFERENCE.md), then the originating app, then
+dependent apps. Keep field names / enum values identical across surfaces.
+(Detailed playbook: .claude/agents/cross-app-sync.md — spawn that agent only for large multi-surface changes.)
+
 End-of-session rules:
 - Log the session in docs/SESSION_NOTES.md AND update docs/ENHANCEMENTS.md (log + gaps + architecture truth if it changed).
 - Any NEW technology/concept introduced → teach it in docs/SYSTEM_DESIGN_NOTES.md (What → Why → Where → Real example → Impact → If not implemented).

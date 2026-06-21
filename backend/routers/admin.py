@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+import uuid
+
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from firebase_admin import auth as firebase_auth
 
 from models.user import TokenVerifyResponse
@@ -9,7 +11,10 @@ from services.geofencing import index_store_geofence
 from services.penalties import process_store_failure
 from services.notifications import send_broadcast_notification
 from services import remote_config
+from config import get_settings
 from utils.helpers import now_ms, new_id
+
+_settings = get_settings()
 
 router = APIRouter()
 _admin = require_role("admin")
@@ -112,15 +117,16 @@ async def onboard_store(body: dict, _: TokenVerifyResponse = Depends(_admin)):
 
         await conn.execute("""
             INSERT INTO stores (
-                id, owner_uid, owner_name, name, area, phone, email, address,
+                id, owner_uid, owner_name, name, area, store_type, phone, email, address,
                 geohash6, location, is_open, is_active, is_verified, is_suspended,
                 strike_count, total_strikes, available_item_ids, created_at
             ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,
-                $9,$10::jsonb,false,false,false,false,
-                0,0,'[]'::jsonb,$11
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,
+                $10,$11::jsonb,false,false,false,false,
+                0,0,'[]'::jsonb,$12
             )
         """, store_id, owner_uid, body["owner_name"], body["name"], body["area"],
+            body.get("store_type", "grocery"),
             body["phone"], body["email"], body.get("address", ""),
             gh, location, ts)
 
@@ -140,7 +146,7 @@ async def update_store(store_id: str, body: dict, _: TokenVerifyResponse = Depen
         raise HTTPException(status_code=404, detail="Store not found")
 
     allowed = {"name", "shop_name", "area", "phone", "email", "address",
-               "is_active", "is_verified", "operating_hours", "image_url"}
+               "is_active", "is_verified", "operating_hours", "image_url", "store_type"}
     updates = {k: v for k, v in body.items() if k in allowed}
 
     # `name` (admin-onboard flow) and `shop_name` (store self-register flow)
@@ -241,9 +247,14 @@ async def get_store_inventory(store_id: str, _: TokenVerifyResponse = Depends(_a
     if not store_row:
         raise HTTPException(status_code=404, detail="Store not found")
     store = dict(store_row)
+    store_type = store.get("store_type") or "grocery"
 
+    # Only show catalog items of this store's marketplace type — an electronics
+    # store should never see grocery/fruits/pharmacy items in its inventory.
     async with pool().acquire() as conn:
-        catalog_rows = await conn.fetch("SELECT * FROM catalog_items WHERE is_active=true")
+        catalog_rows = await conn.fetch(
+            "SELECT * FROM catalog_items WHERE is_active=true AND COALESCE(marketplace_type,'grocery')=$1",
+            store_type)
 
     available_ids = set(store.get("available_item_ids") or [])
     inventory = store.get("inventory") or {}
@@ -396,19 +407,34 @@ async def admin_list_catalog(
     return {"items": results, "total": len(results)}
 
 
+_PRODUCT_JSONB = {"images", "specs"}
+
+
 @router.post("/catalog/items", status_code=201)
 async def admin_create_catalog_item(body: dict, _: TokenVerifyResponse = Depends(_admin)):
-    for field in ["name", "category", "unit"]:
+    for field in ["name", "unit"]:
         if not body.get(field):
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
     item_id = new_id()
+    images = body.get("images") or ([body["image_url"]] if body.get("image_url") else [])
+    primary = body.get("image_url") or (images[0] if images else "")
     async with pool().acquire() as conn:
         await conn.execute("""
-            INSERT INTO catalog_items (id, name, name_hindi, name_marathi, category, unit, image_url, is_active, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8)
+            INSERT INTO catalog_items (
+                id, name, name_hindi, name_marathi, category, marketplace_type,
+                category_id, subcategory_id, brand, sku, description, unit,
+                price, mrp, discount_percent, stock_quantity, image_url, images, specs,
+                is_active, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,true,$20)
         """, item_id, body["name"],
             body.get("name_hindi", ""), body.get("name_marathi", ""),
-            body["category"], body["unit"], body.get("image_url", ""), now_ms())
+            body.get("category", ""), body.get("marketplace_type", "grocery"),
+            body.get("category_id"), body.get("subcategory_id"),
+            body.get("brand", ""), body.get("sku", ""), body.get("description", ""),
+            body["unit"], float(body.get("price", 0)), float(body.get("mrp", 0)),
+            float(body.get("discount_percent", 0)), int(body.get("stock_quantity", 0)),
+            primary, images, body.get("specs", {}), now_ms())
+    await cache.invalidate("catalog")
     return {"item_id": item_id, "status": "created"}
 
 
@@ -418,8 +444,14 @@ async def admin_update_catalog_item(item_id: str, body: dict, _: TokenVerifyResp
         row = await conn.fetchrow("SELECT id FROM catalog_items WHERE id=$1", item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
-    allowed = {"name", "name_hindi", "name_marathi", "category", "unit", "image_url", "is_active", "price"}
+    allowed = {"name", "name_hindi", "name_marathi", "category", "marketplace_type",
+               "category_id", "subcategory_id", "brand", "sku", "description", "unit",
+               "image_url", "images", "specs", "price", "mrp", "discount_percent",
+               "stock_quantity", "is_active"}
     updates = {k: v for k, v in body.items() if k in allowed}
+    # keep image_url (primary) in sync if only images[] supplied
+    if "images" in updates and "image_url" not in updates and updates["images"]:
+        updates["image_url"] = updates["images"][0]
     if updates:
         fields, vals = [], [item_id]
         for k, v in updates.items():
@@ -429,6 +461,7 @@ async def admin_update_catalog_item(item_id: str, body: dict, _: TokenVerifyResp
         fields.append(f"updated_at=${len(vals)}")
         async with pool().acquire() as conn:
             await conn.execute(f"UPDATE catalog_items SET {', '.join(fields)} WHERE id=$1", *vals)
+    await cache.invalidate("catalog")
     return {"status": "updated"}
 
 
@@ -447,7 +480,208 @@ async def admin_delete_catalog_item(
             await conn.execute("DELETE FROM catalog_items WHERE id=$1", item_id)
         else:
             await conn.execute("UPDATE catalog_items SET is_active=false WHERE id=$1", item_id)
+    await cache.invalidate("catalog")
     return {"status": "permanently_deleted" if permanent else "deactivated"}
+
+
+# ── Category Management (DB-driven CMS) ────────────────────────────────────────
+
+@router.get("/categories")
+async def admin_list_categories(
+    marketplace_type: str = Query(None),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    """All categories (incl. disabled) for the admin manager, ordered."""
+    async with pool().acquire() as conn:
+        if marketplace_type:
+            rows = await conn.fetch(
+                "SELECT * FROM categories WHERE marketplace_type=$1 ORDER BY sort_order, name",
+                marketplace_type)
+        else:
+            rows = await conn.fetch(
+                "SELECT * FROM categories ORDER BY marketplace_type, sort_order, name")
+    return {"categories": [dict(r) for r in rows], "total": len(rows)}
+
+
+@router.post("/categories", status_code=201)
+async def admin_create_category(body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    if not body.get("name") or not body.get("marketplace_type"):
+        raise HTTPException(status_code=422, detail="name and marketplace_type are required")
+    cat_id = new_id()
+    async with pool().acquire() as conn:
+        await conn.execute("""
+            INSERT INTO categories (id, marketplace_type, name, image_url, sort_order, is_enabled, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+        """, cat_id, body["marketplace_type"], body["name"], body.get("image_url", ""),
+            int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)), now_ms())
+    await cache.invalidate("catalog")
+    return {"id": cat_id, "status": "created"}
+
+
+@router.patch("/categories/{cat_id}")
+async def admin_update_category(cat_id: str, body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM categories WHERE id=$1", cat_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Category not found")
+    allowed = {"name", "marketplace_type", "image_url", "sort_order", "is_enabled"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if updates:
+        fields, vals = [], [cat_id]
+        for k, v in updates.items():
+            vals.append(v)
+            fields.append(f"{k}=${len(vals)}")
+        vals.append(now_ms())
+        fields.append(f"updated_at=${len(vals)}")
+        async with pool().acquire() as conn:
+            await conn.execute(f"UPDATE categories SET {', '.join(fields)} WHERE id=$1", *vals)
+    await cache.invalidate("catalog")
+    return {"status": "updated"}
+
+
+@router.delete("/categories/{cat_id}")
+async def admin_delete_category(
+    cat_id: str,
+    permanent: bool = Query(False),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM categories WHERE id=$1", cat_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Category not found")
+    async with pool().acquire() as conn:
+        if permanent:
+            await conn.execute("DELETE FROM subcategories WHERE category_id=$1", cat_id)
+            await conn.execute("DELETE FROM categories WHERE id=$1", cat_id)
+        else:
+            await conn.execute("UPDATE categories SET is_enabled=false WHERE id=$1", cat_id)
+    await cache.invalidate("catalog")
+    return {"status": "permanently_deleted" if permanent else "disabled"}
+
+
+@router.post("/categories/reorder")
+async def admin_reorder_categories(body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    """body: {"order": ["cat_id_1", "cat_id_2", ...]} — sets sort_order by index."""
+    order = body.get("order") or []
+    async with pool().acquire() as conn:
+        for i, cid in enumerate(order):
+            await conn.execute("UPDATE categories SET sort_order=$2, updated_at=$3 WHERE id=$1",
+                               cid, i, now_ms())
+    await cache.invalidate("catalog")
+    return {"status": "reordered", "count": len(order)}
+
+
+# ── Subcategory Management ─────────────────────────────────────────────────────
+
+@router.get("/subcategories")
+async def admin_list_subcategories(
+    category_id: str = Query(None),
+    marketplace_type: str = Query(None),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    async with pool().acquire() as conn:
+        if category_id:
+            rows = await conn.fetch(
+                "SELECT * FROM subcategories WHERE category_id=$1 ORDER BY sort_order, name", category_id)
+        elif marketplace_type:
+            rows = await conn.fetch(
+                "SELECT * FROM subcategories WHERE marketplace_type=$1 ORDER BY sort_order, name", marketplace_type)
+        else:
+            rows = await conn.fetch("SELECT * FROM subcategories ORDER BY sort_order, name")
+    return {"subcategories": [dict(r) for r in rows], "total": len(rows)}
+
+
+@router.post("/subcategories", status_code=201)
+async def admin_create_subcategory(body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    if not body.get("name") or not body.get("category_id"):
+        raise HTTPException(status_code=422, detail="name and category_id are required")
+    # inherit marketplace from parent if not given
+    market = body.get("marketplace_type")
+    if not market:
+        async with pool().acquire() as conn:
+            prow = await conn.fetchrow("SELECT marketplace_type FROM categories WHERE id=$1", body["category_id"])
+        market = prow["marketplace_type"] if prow else "grocery"
+    sub_id = new_id()
+    async with pool().acquire() as conn:
+        await conn.execute("""
+            INSERT INTO subcategories (id, category_id, marketplace_type, name, image_url, sort_order, is_enabled, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+        """, sub_id, body["category_id"], market, body["name"], body.get("image_url", ""),
+            int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)), now_ms())
+    await cache.invalidate("catalog")
+    return {"id": sub_id, "status": "created"}
+
+
+@router.patch("/subcategories/{sub_id}")
+async def admin_update_subcategory(sub_id: str, body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM subcategories WHERE id=$1", sub_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Subcategory not found")
+    allowed = {"name", "category_id", "marketplace_type", "image_url", "sort_order", "is_enabled"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if updates:
+        fields, vals = [], [sub_id]
+        for k, v in updates.items():
+            vals.append(v)
+            fields.append(f"{k}=${len(vals)}")
+        vals.append(now_ms())
+        fields.append(f"updated_at=${len(vals)}")
+        async with pool().acquire() as conn:
+            await conn.execute(f"UPDATE subcategories SET {', '.join(fields)} WHERE id=$1", *vals)
+    await cache.invalidate("catalog")
+    return {"status": "updated"}
+
+
+@router.delete("/subcategories/{sub_id}")
+async def admin_delete_subcategory(
+    sub_id: str,
+    permanent: bool = Query(False),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM subcategories WHERE id=$1", sub_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Subcategory not found")
+    async with pool().acquire() as conn:
+        if permanent:
+            await conn.execute("DELETE FROM subcategories WHERE id=$1", sub_id)
+        else:
+            await conn.execute("UPDATE subcategories SET is_enabled=false WHERE id=$1", sub_id)
+    await cache.invalidate("catalog")
+    return {"status": "permanently_deleted" if permanent else "disabled"}
+
+
+# ── Image upload (Supabase Storage) ────────────────────────────────────────────
+
+@router.post("/upload-image")
+async def admin_upload_image(
+    file: UploadFile = File(...),
+    folder: str = Query("catalog"),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    """Upload an image to Supabase Storage bucket `dhav-images` and return its public
+    URL — so admin can upload category/subcategory/product images instead of pasting
+    URLs. Requires SUPABASE_SERVICE_KEY + a public bucket named `dhav-images`."""
+    if not _settings.supabase_service_key:
+        raise HTTPException(status_code=503, detail="Supabase service key not configured")
+    import httpx
+    bucket = "dhav-images"
+    ext = (file.filename or "img").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "jpg"
+    path = f"{folder}/{uuid.uuid4().hex}.{ext}"
+    content = await file.read()
+    url = f"{_settings.supabase_url}/storage/v1/object/{bucket}/{path}"
+    headers = {
+        "Authorization": f"Bearer {_settings.supabase_service_key}",
+        "Content-Type": file.content_type or "image/jpeg",
+        "x-upsert": "true",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(url, content=content, headers=headers)
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail=f"Upload failed: {resp.status_code} {resp.text}")
+    public_url = f"{_settings.supabase_url}/storage/v1/object/public/{bucket}/{path}"
+    return {"url": public_url, "path": path}
 
 
 # ── Order Management ───────────────────────────────────────────────────────────

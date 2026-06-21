@@ -29,9 +29,176 @@
 | Store app | Flutter (`com.dhav.store`, store owner + delivery roles) | Points to Render URL ✅ |
 | Admin dashboard | Flutter Web on Firebase Hosting | LIVE: `https://dhav-quick-commerce.web.app`, points to Render URL ✅ |
 
+> 🎨 **Brand primary colour = blue `#1E88E5`** (customer app `core/theme/app_colors.dart`).
+> This is the source of truth. Some older session notes describe a "teal/saffron" brand —
+> those are **stale**; the brand colour is blue and the 2026-06-19 UI redesign keeps it.
+
 ---
 
 ## ✅ ENHANCEMENT LOG (newest first)
+
+### 2026-06-21 — Customer app rebuilt to `customer_app_design_ss/` + multi-marketplace UI
+- **Context:** Harshad's design screenshots (`customer_app_design_ss/`, 16 files — filenames carry the
+  requirements) are the source of truth. The 2026-06-19 "Blinkit-blue" redesign did NOT match them,
+  and the prior marketplace conversion had finished the **backend/data** (migrations 004/005, marketplace-
+  scoped catalog API, `MarketplaceProvider`/`MarketplaceTheme`, `AppTheme.forMarketplace` wired in
+  `main.dart`) but **never rebuilt the UI**. Plan: `docs/CUSTOMER_APP_REDESIGN_PLAN.md`.
+- **Decisions (locked):** variants = separate items grouped by `group_id`; real ratings; fully-implemented
+  checkout extras (wishlist/GSTIN/donation/delivery-instructions); bottom nav stays DHAV's 4 tabs restyled.
+- **Phase 1 — Home + marketplace switcher:** new `features/home/marketplace_tab_bar.dart` — card tabs
+  (DHAV/Fresh Fruits/Electronics/Pharmacy); active card merges into the header. Tap → `MarketplaceProvider.setActive`
+  + `CatalogProvider.setMarketplace` → **whole app re-themes** + catalog reloads. Home category strip + new
+  "Shop by Category" grid are **DB-driven**. Removed the old 2-tab DHAV/Stores PageView; Stores is now a pushed
+  screen. `main_shell.dart` bottom nav + cart bar themed via `context.mp`.
+- **Phase 2 — Category listing:** new `features/catalog/category_listing_screen.dart` (left subcategory rail +
+  filter/sort chips + 2-col grid) and `filter_sheet.dart` (brand facet + Clear/Apply).
+- **Phase 3 — Product detail:** rebuilt `item_detail_screen.dart` — carousel, highlight chips + "View details"
+  sheet, **Select Unit** variants (via `group_id`), brand row, replacement policy, **Similar** + **Top in category**
+  carousels. Added `groupId`/`rating`/`ratingCount` to `CatalogItem` + `siblingsOf`/`similarTo`/`topInCategory`
+  to `CatalogProvider` (degrade gracefully when data absent).
+- **Phase 4 — Checkout:** rebuilt `cart_screen.dart` — delivery card, item rows w/ Move-to-wishlist + struck MRP,
+  "You might also like", full **Bill details** (items/handling/delivery/grand total + savings), GSTIN, delivery-
+  instructions chips, donation strip. New `WishlistProvider` (local; in `main.dart`). `CartProvider` gained
+  gstin/donation/instructions/handling + `grandTotal`. ⚠️ extras captured client-side; payload persistence = 6b.
+- **Phase 5 — Orders:** history past card → ✓-arrived + item image thumbnails + Reorder/Rate; detail → order
+  summary + Download Invoice + items w/ images + Rate-now + **Bill details** breakdown + copyable id + Repeat Order.
+- **Phase 6 (backend) — migration written:** `backend/migrations/007_variants_ratings_checkout.sql` adds
+  `group_id` + `rating`/`rating_count` (+ seeds demo ratings), order `gstin`/`donation_amount`/`handling_charge`/
+  `delivery_instructions`, and the `wishlist` table. Folded into `000_full_schema.sql`. **Ratings light up with
+  no redeploy** (`/catalog/items` returns all columns). ⚠️ **Run 007 in Supabase.**
+- **Phase 6b — checkout extras wired end-to-end:** `OrderProvider.placeOrder/placeDirectOrder` +
+  `cart_screen` now send gstin/donation/handling/delivery_instructions; backend `models/order.py` +
+  `routers/orders.py` (both INSERTs) persist them (`total_customer_amount = items + handling + donation`).
+  Wishlist API added (`GET/POST/DELETE /customers/me/wishlist`). `API_REFERENCE.md` updated.
+- **Phase 7 — store_type isolation: VERIFIED DONE** (prior session): registration has a mandatory store-type
+  selector; `InventoryProvider.load(marketplaceType:)` scopes categories + items to the store's own
+  marketplace. **Fixed** a latent bug: `/catalog/categories` now returns objects, so the store inventory
+  category chips mapped `e.toString()` (stringified maps) → now reads `e['name']`.
+- **Phase 8 — admin CRUD: VERIFIED DONE** (prior session): backend `routers/admin.py` has full
+  categories/subcategories/products CRUD + reorder + `/upload-image`; admin web `features/catalog/` (catalog
+  screen + category/subcategory manager tabs + product dialog + image upload) is wired (provider + route +
+  sidebar). Tidied one unused import.
+- **Phase 9 — order routing: VERIFIED** by code: `place_order(marketplace_type)` → `start_broadcast` →
+  `find_nearby_stores_async(store_type=...)` → SQL `WHERE COALESCE(store_type,'grocery') = $2`. Type-correct
+  (an electronics order never reaches a grocery/fruits/pharmacy store).
+- **Status:** customer_app + store_app + admin_dashboard changed files **analyzer-clean**; backend
+  `py_compile`-clean. **NOT device-run.** ⚠️ Remaining manual steps: (1) **run `007` in Supabase**;
+  (2) `git push origin main` (backend order fields + wishlist); (3) seed `group_id` families in
+  `build_seed.py` for "Select Unit" variants (data-only; degrades gracefully now); (4) rebuild/redeploy apps.
+
+### 2026-06-21 — Store self-delivery (owner rides + shares live GPS, no delivery partner)
+- **What:** a store can now declare **`self_delivery`** — it delivers its own orders. The owner
+  rides the order and **streams live GPS to the customer** (the customer's existing live-tracking
+  map + deliverer card "just work"), with **no delivery-partner step**.
+- **Why it was mostly wiring, not new infra:** the live-location pipeline already existed
+  (`services/location_ws.py` WS hub + customer `order_tracking_screen.dart` animated marker +
+  `DeliveryLocationStreamer` on the store side). The only real backend gap: the WS authorizes a
+  rider by `uid == assigned_delivery_boy_id` (or `accepted_by_store_id`, which is the **store row
+  id**, NOT the owner's uid → never matches the owner). Fix: on **dispatch**, a self-delivery store
+  stamps `assigned_delivery_boy_id = owner_uid` so the owner's stream is authorized.
+- **Backend (REQUIRED):** `self_delivery BOOLEAN DEFAULT false` on `stores`
+  (migration `006_self_delivery.sql` + added to `000_full_schema.sql`); `Store` model +
+  `StoreSelfRegisterRequest` + `StoreProfileUpdateRequest` carry it (`models/store.py`); `/stores/register`
+  INSERT + `/stores/me/profile` PATCH persist it (`routers/stores.py`); **`POST /orders/{id}/dispatched`**
+  (`routers/orders.py`) — when the store is self-delivery and no partner was assigned, stamps
+  `assigned_delivery_boy_id = owner_uid`, `delivery_boy_name = shop name`, `delivery_boy_phone = store phone`.
+  `API_REFERENCE.md` updated.
+- **Store app (REQUIRED):** `Store.selfDelivery` (parse + copyWith); a **"Delivery method" toggle** in
+  registration (`store_registration_screen.dart`) and **Store Profile** (`store_profile_screen.dart` →
+  `PATCH /stores/me/profile`); `StoreProvider.updateProfile(selfDelivery:)` + `auth_service`/`auth_provider`
+  `registerStore(selfDelivery:)`. **`active_order_screen.dart`** now branches on self-delivery: the stepper
+  drops the "Assign Delivery Boy" step (4 steps: Accepted → Packed → Out for Delivery → Delivered), the CTA
+  goes Mark as Packed → **"Start Delivery & Share Location"** (markDispatched + starts `DeliveryLocationStreamer`)
+  → Mark Delivered, with a **LIVE badge**, a "Sharing your live location" banner, **Navigate in Google Maps**,
+  and a retry-sharing fallback. Reopening mid-delivery resumes the stream.
+- **Customer app (SKIP):** no change — its tracking screen already renders the live marker + deliverer card
+  from the order's `delivery_boy_*` fields, which the backend now stamps with the shop. **Admin (SKIP):** no
+  data-integrity dependency; a "self-delivery" store badge is backlog.
+- ⚠️ **Needs:** (1) run migration **`006_self_delivery.sql`** in Supabase; (2) **deploy backend**
+  (`git push origin main` → Render) for the model/register/profile/dispatch changes. Store-app changes are
+  local/gitignored.
+- **Status: backend `py_compile`-clean; all 7 changed store_app Dart files `flutter analyze`-clean (0 issues).
+  NOT yet device-run / deployed.**
+
+### 2026-06-19 — Customer app: full UI redesign on a real design-token system
+- **What:** a premium Quick-Commerce visual overhaul of the customer app, **keeping the
+  current brand primary blue `#1E88E5`** (per Harshad — older "teal/saffron" mentions in
+  docs are stale; **the brand colour is and stays blue `#1E88E5`** — this line is the truth,
+  see also Current Architecture). Research-first: reviewed 10 real Blinkit App Store
+  screenshots (home / category listing / store grid / gifting / payments / live tracking)
+  plus known Zepto / Instamart / BigBasket patterns, then applied their *structure* in DHAV blue.
+- **No functional change:** all providers, API calls, navigation, address/GPS logic, Remote
+  Config, FCM, cart/order flows and special components (mascot ComingSoon, Welcome sheet,
+  AI-assistant "Zatpat" chip, Deal-of-Day) are untouched — UI/UX only. customer_app only;
+  store_app / admin / backend = SKIP (no shared data/contract change).
+- **New design-token system** (`customer_app/lib/core/theme/`): expanded `app_colors.dart`
+  (neutral ramp, surfaceTint, dealAmber, etaGreen, header gradient — primary unchanged) +
+  new `app_spacing.dart`, `app_radius.dart`, `app_shadows.dart`, `app_text.dart` (Inter type
+  scale). `app_theme.dart` wired to the scale (chip/sheet/dialog/snackbar themes added).
+- **New shared components** (`customer_app/lib/core/widgets/`): `product_card.dart`
+  (`ProductCard` grid + `ProductRow` list — image-led card with an **ADD pill overlapping the
+  image**, category badge, `PriceTag` with struck MRP), `qty_stepper.dart` (`QtyStepper`),
+  `section_header.dart`, `app_badges.dart` (DiscountBadge / SaveBadge / EtaChip / StatusPill /
+  PriceTag / VerifiedTick), `app_chip.dart`, `empty_state.dart`. Redesigned `dhav_bottom_nav.dart`
+  (filled active icon + soft active pill).
+- **Screens redesigned with the new system:** Home (ETA-style header, floating search,
+  circular category strip, track banner, sections via `SectionHeader`, Fresh-For-You grid +
+  category browse → `ProductCard`), Search (floating bar, popular-search idle state, chips,
+  `ProductRow`), Orders (status-pill cards, segmented tab bar), Notifications (icon-tile rows,
+  unread accent), Product detail, Cart (bill card + savings strip), Store detail (kept the
+  cross-store "Replace cart?" guard, restyled card). All other customer screens inherit the
+  new look automatically through the shared `AppColors`/theme tokens.
+- **Status: analyzer-clean** — `flutter analyze` across customer_app shows **0 errors, 0
+  warnings**; only the pre-existing `withOpacity`/`desiredAccuracy` deprecation **infos** remain
+  (unchanged baseline). **NOT yet device-run.**
+- **Follow-ups (token-consistent but not yet bespoke-redesigned):** order tracking / broadcasting /
+  order-detail, the address sheets, welcome/AI/coming-soon sheets, profile — they already pick up
+  the new palette + type scale via tokens; a deeper per-screen pass is optional next. Eyeball the
+  ComingSoon mascot on the new cooler background (`#F6F7F9`) on a device.
+
+### 2026-06-17 (#4) — "Coming Soon" scene: DHAV mascot holding an area signboard
+- **What:** replaced the isometric shop+signboard illustration in `ComingSoonView`
+  (`customer_app/lib/features/home/coming_soon_view.dart`) with the **DHAV mascot** — a Puneri
+  kirana shopkeeper (white kurta + saffron scarf, glasses) holding a blank wooden signboard, with a
+  veggie crate, a location pin and a DHAV grocery bag at his feet. Sourced from Harshad's Canva
+  design (`DAHMwgCFExA`), exported PNG → `assets/images/coming_soon_mascot.png` (800×1000).
+- **Board text is overlaid in code** (the asset board is blank): "COMING SOON" (small, board-brown)
+  + the **area name** big below it (e.g. "Hinjawadi"; falls back to "Near You" when the geocode is
+  unknown/denied). Placement is a fixed fraction of a same-aspect (0.8) box rendered with
+  `BoxFit.contain`, so the text always lands on the board across screen sizes; `FittedBox` shrinks
+  long area names. Mascot keeps the gentle bob animation.
+- **Layout now mirrors the LoveLocal reference** Harshad shared: mascot → headline
+  **"Coming Soon to &lt;Area&gt;"** → subtitle → **Notify Me** pill → "Try a different location".
+  ⚠️ **Wording note / changed earlier decision:** the headline is now area-framed ("Coming Soon to
+  &lt;Area&gt;") per Harshad's explicit request, reverting the 2026-06-17 (#2) "No stores near you
+  yet" choice. To stay honest (a user can be *inside* Hinjawadi but just outside every store's
+  radius), the **subtitle keeps the accurate nuance**: "DHAV is still growing around &lt;Area&gt; —
+  no store covers your spot just yet."
+- **No API/wiring change:** constructor signature is unchanged, so all 3 call sites (Home DHAV tab,
+  Home Stores tab, Search screen) work as-is. Removed the old `_shopPairs`/`_pair`/`_signboard`
+  machinery; the `shop_*` assets remain in the folder (now unused by this view, harmless).
+- **Polish pass (same day, per Harshad's feedback):**
+  - **Transparent background:** the Canva PNG exported on a white field (Free plan = no transparent
+    export), so the mascot looked like a pasted white rectangle on the off-white feed
+    (`AppColors.background` `0xFFFAFAF7`). Removed it locally with a **PIL border flood-fill**
+    (thresh 60 → ~63% of pixels cleared, light feather) so only the man + signboard + scarf +
+    veggie crate + DHAV bag + location pin remain; re-saved the asset as **RGBA**. (Faint leftover
+    clouds are invisible on the warm-white feed.)
+  - **Board text now matches the tilt:** measured the wooden frame's top/left edges with numpy →
+    board is tilted **≈ -6.5° (CCW)**. The overlaid "COMING SOON / rule / area" block is wrapped in
+    `Transform.rotate(angle: -0.113 rad)` so it sits flush on the board (was upright = looked stuck-on).
+  - **Bigger mascot:** display width `280 → 340` (height 425, aspect preserved). Board-text fractions
+    are unchanged (they're fractions of the box), so alignment holds.
+  - **Board typography + colours:** "COMING SOON" is now **Baloo 2** (terracotta `0xFFC1571E`) over a
+    matching rule, and the area is hand-lettered in **Caveat** (espresso `0xFF3A2816`) — reads like a
+    real painted sign. Area name is **title-cased** (`_titleCase`: "hinjawadi" → "Hinjawadi") on both
+    the board and the headline.
+  - **Highlighted subtitle:** the subtitle is now `Text.rich` (`_subtitleSpans`) — the **area** is in
+    brand colour (w800) and **"no store covers your spot just yet"** is bold `textPrimary`, the rest
+    `textSecondary`.
+- **Status: analyzer-clean** (`coming_soon_view.dart` 0 issues), `dart format`-clean. customer_app
+  only (gitignored). NOT yet device-run. Old `shop_*` illustration assets are now orphaned — safe to
+  delete later.
 
 ### 2026-06-17 (#3) — Address: reliable save + instant local-first restore + "enable location" prompt
 - **Problem (3 things Harshad hit):** (1) saving an address **sometimes failed** ("Failed to save
@@ -377,6 +544,10 @@
 
 ## 🚧 IN PROGRESS / NEEDS VERIFICATION
 
+- [ ] **Run migration `006_self_delivery.sql`** in Supabase (SQL Editor) — adds `stores.self_delivery`.
+- [ ] **Deploy backend** for self-delivery (model + `/stores/register` + `/stores/me/profile` +
+      `POST /orders/{id}/dispatched` stamping). Then device-test: store with self-delivery ON →
+      accept → pack → "Start Delivery & Share Location" → customer sees the shop moving live on the map.
 - [ ] **Run migration `003_coming_soon_waitlist.sql`** in Supabase (SQL Editor) — creates the
       `coming_soon_waitlist` table the Notify-Me endpoint writes to.
 - [ ] **Deploy backend** (`git push origin main` → Render) to ship `/customers/notify-waitlist`
