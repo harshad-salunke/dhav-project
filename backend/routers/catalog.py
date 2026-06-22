@@ -37,6 +37,48 @@ async def _get_catalog_node() -> dict:
     return data
 
 
+# Built-in fallback verticals — served if the marketplaces table is missing/empty
+# (e.g. before migration 008 is run). The customer app also has these as defaults.
+_DEFAULT_MARKETPLACES = [
+    {"wire": "grocery", "name": "DHAV", "tab_label": "DHAV", "emoji": "🛍️",
+     "color_primary": "#1E88E5", "color_primary_dark": "#1565C0", "color_accent": "#42A5F5",
+     "color_header_top": "#2196F3", "color_header_bottom": "#1565C0", "color_tint": "#E3F2FD",
+     "sort_order": 0, "is_enabled": True},
+    {"wire": "fruits", "name": "Fresh Fruits", "tab_label": "Fresh Fruits", "emoji": "🍉",
+     "color_primary": "#2E7D32", "color_primary_dark": "#1B5E20", "color_accent": "#43A047",
+     "color_header_top": "#43A047", "color_header_bottom": "#2E7D32", "color_tint": "#E8F5E9",
+     "sort_order": 1, "is_enabled": True},
+    {"wire": "electronics", "name": "Electronics", "tab_label": "Electronics", "emoji": "🎧",
+     "color_primary": "#1A237E", "color_primary_dark": "#0D1551", "color_accent": "#3949AB",
+     "color_header_top": "#3949AB", "color_header_bottom": "#1A237E", "color_tint": "#E8EAF6",
+     "sort_order": 2, "is_enabled": True},
+    {"wire": "pharmacy", "name": "Pharmacy", "tab_label": "Pharmacy", "emoji": "💊",
+     "color_primary": "#00897B", "color_primary_dark": "#00695C", "color_accent": "#00ACC1",
+     "color_header_top": "#00ACC1", "color_header_bottom": "#00897B", "color_tint": "#E0F2F1",
+     "sort_order": 3, "is_enabled": True},
+]
+
+
+@router.get("/marketplaces")
+async def get_marketplaces():
+    """DB-driven marketplace verticals (admin-configurable). Falls back to the
+    built-in 4 if the table is missing/empty so the app always renders."""
+    cached = catalog_cache.get("marketplaces")
+    if cached is not None:
+        return {"marketplaces": cached}
+    rows = []
+    try:
+        async with pool().acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM marketplaces WHERE is_enabled = true "
+                "ORDER BY sort_order, name")
+    except Exception:
+        rows = []
+    data = [dict(r) for r in rows] or _DEFAULT_MARKETPLACES
+    catalog_cache.set("marketplaces", data, ttl=CATEGORY_TTL)
+    return {"marketplaces": data}
+
+
 @router.get("/categories")
 async def get_categories(marketplace_type: str = Query(None)):
     """DB-driven categories (admin-managed) for a marketplace, enabled + ordered.

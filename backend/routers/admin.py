@@ -652,6 +652,105 @@ async def admin_delete_subcategory(
     return {"status": "permanently_deleted" if permanent else "disabled"}
 
 
+# ── Marketplace (vertical) management ──────────────────────────────────────────
+
+_MARKETPLACE_FIELDS = {
+    "name", "tab_label", "emoji", "color_primary", "color_primary_dark",
+    "color_accent", "color_header_top", "color_header_bottom", "color_tint",
+    "sort_order", "is_enabled",
+}
+
+
+@router.get("/marketplaces")
+async def admin_list_marketplaces(_: TokenVerifyResponse = Depends(_admin)):
+    """All marketplaces (incl. disabled) for the admin manager, ordered."""
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM marketplaces ORDER BY sort_order, name")
+    return {"marketplaces": [dict(r) for r in rows], "total": len(rows)}
+
+
+@router.post("/marketplaces", status_code=201)
+async def admin_create_marketplace(body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    wire = (body.get("wire") or "").strip().lower()
+    if not wire or not body.get("name"):
+        raise HTTPException(status_code=422, detail="wire and name are required")
+    if not wire.isidentifier():
+        raise HTTPException(status_code=422,
+                            detail="wire must be a simple slug (letters/digits/_)")
+    async with pool().acquire() as conn:
+        exists = await conn.fetchrow("SELECT wire FROM marketplaces WHERE wire=$1", wire)
+        if exists:
+            raise HTTPException(status_code=409, detail="marketplace already exists")
+        await conn.execute("""
+            INSERT INTO marketplaces (
+                wire, name, tab_label, emoji,
+                color_primary, color_primary_dark, color_accent,
+                color_header_top, color_header_bottom, color_tint,
+                sort_order, is_enabled, created_at, updated_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+        """, wire, body["name"], body.get("tab_label", body["name"]),
+            body.get("emoji", "🛍️"),
+            body.get("color_primary", ""), body.get("color_primary_dark", ""),
+            body.get("color_accent", ""), body.get("color_header_top", ""),
+            body.get("color_header_bottom", ""), body.get("color_tint", ""),
+            int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)),
+            now_ms())
+    await cache.invalidate("catalog")
+    return {"wire": wire, "status": "created"}
+
+
+@router.patch("/marketplaces/{wire}")
+async def admin_update_marketplace(wire: str, body: dict, _: TokenVerifyResponse = Depends(_admin)):
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT wire FROM marketplaces WHERE wire=$1", wire)
+    if not row:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    updates = {k: v for k, v in body.items() if k in _MARKETPLACE_FIELDS}
+    if updates:
+        fields, vals = [], [wire]
+        for k, v in updates.items():
+            vals.append(v)
+            fields.append(f"{k}=${len(vals)}")
+        vals.append(now_ms())
+        fields.append(f"updated_at=${len(vals)}")
+        async with pool().acquire() as conn:
+            await conn.execute(
+                f"UPDATE marketplaces SET {', '.join(fields)} WHERE wire=$1", *vals)
+    await cache.invalidate("catalog")
+    return {"status": "updated"}
+
+
+@router.delete("/marketplaces/{wire}")
+async def admin_delete_marketplace(
+    wire: str,
+    permanent: bool = Query(False),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    """Disable (default) or permanently delete a marketplace. Permanent delete is
+    blocked while categories/products still reference it, to avoid orphans."""
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT wire FROM marketplaces WHERE wire=$1", wire)
+        if not row:
+            raise HTTPException(status_code=404, detail="Marketplace not found")
+        if permanent:
+            cat_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM categories WHERE marketplace_type=$1", wire)
+            item_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM catalog_items WHERE marketplace_type=$1", wire)
+            if (cat_count or 0) > 0 or (item_count or 0) > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Marketplace still has categories/products — disable it "
+                           "or move them first.")
+            await conn.execute("DELETE FROM marketplaces WHERE wire=$1", wire)
+        else:
+            await conn.execute(
+                "UPDATE marketplaces SET is_enabled=false WHERE wire=$1", wire)
+    await cache.invalidate("catalog")
+    return {"status": "permanently_deleted" if permanent else "disabled"}
+
+
 # ── Image upload (Supabase Storage) ────────────────────────────────────────────
 
 @router.post("/upload-image")

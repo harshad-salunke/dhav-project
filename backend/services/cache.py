@@ -72,6 +72,7 @@ def _clear_local(target: str) -> None:
     if target == "catalog":
         catalog_cache.delete("catalog_all")
         catalog_cache.delete("catalog_categories")          # legacy derived-list key
+        catalog_cache.delete("marketplaces")                # admin-configured verticals
         catalog_cache.clear_prefix("categories:")           # marketplace-keyed category lists
         catalog_cache.clear_prefix("subcategories:")        # marketplace/category subcategory lists
     elif target == "home_config":

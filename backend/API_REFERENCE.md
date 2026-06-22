@@ -274,6 +274,15 @@ Backed by the `wishlist (uid, item_id)` table *(migration 007)*.
 > `description`, `unit`, `price`, `mrp`, `discount_percent`, `stock_quantity`,
 > `image_url` (primary), `images` (3–5 URL array), `specs` (key→value map).
 
+### GET `/catalog/marketplaces`
+**Auth:** Public  
+**Purpose:** DB-driven marketplace verticals (admin-configurable). Returns enabled
+verticals ordered by `sort_order`: `{ wire, name, tab_label, emoji, color_primary,
+color_primary_dark, color_accent, color_header_top, color_header_bottom, color_tint,
+sort_order, is_enabled }`. Falls back to the built-in 4 if the `marketplaces` table is
+missing/empty. *(migration 008)* Admin CRUD: `GET/POST/PATCH/DELETE /admin/marketplaces`
+(+`/{wire}`); writes invalidate the catalog cache so the app updates on next load.
+
 ### GET `/catalog/categories`
 **Auth:** Public  
 **Query params:** `marketplace_type` (optional)  

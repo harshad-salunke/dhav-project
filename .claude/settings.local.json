@@ -139,7 +139,9 @@
       "Bash(awk '{printf \"%-40s %s\\\\n\", $9, $5}')",
       "Bash(python -m py_compile models/store.py routers/stores.py routers/orders.py)",
       "Bash(python -m py_compile services/cache.py routers/admin.py routers/catalog.py)",
-      "Bash(python -m py_compile routers/orders.py routers/customers.py models/order.py)"
+      "Bash(python -m py_compile routers/orders.py routers/customers.py models/order.py)",
+      "Bash(python -m py_compile routers/catalog.py routers/admin.py services/cache.py)",
+      "Bash(python -m py_compile routers/admin.py routers/catalog.py services/cache.py)"
     ]
   }
 }
