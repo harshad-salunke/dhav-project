@@ -1523,6 +1523,124 @@ exactly the cross-wiring the whole change exists to prevent.
 
 ---
 
+## 💡 Concept 25: Call masking — letting two people talk without sharing their phone numbers
+
+### What it is
+**Call masking** (a.k.a. number masking / call bridging) lets a deliverer and a customer phone each
+other while **neither sees the other's real number**. A cloud-telephony provider places **two call
+legs** and joins them through a **virtual number** (an "ExoPhone"). Both phones show that virtual
+number as the caller ID — the real numbers are never revealed to the other party. This is exactly how
+Blinkit/Swiggy/Zomato/Ola hide numbers in their delivery calls.
+
+```
+deliverer ──leg A──►  [ Exotel ]  ──leg B──►  customer
+                    CallerId = +91-VIRTUAL
+   both sides see +91-VIRTUAL, never each other's real number
+```
+
+### Why DHAV needed it
+A store owner (or assigned delivery partner) often needs to call the customer ("I'm at your gate, which
+floor?") and vice-versa. Putting the real mobile number on the order screen is a **privacy and safety
+leak** — customers get spam/harassment calls after delivery; riders get their personal number saved by
+strangers. Masking keeps coordination working while protecting both people. We also **log every call**
+so spend is auditable and "they never called" disputes can be checked.
+
+### Why a *provider-agnostic* service (not "just call Exotel")
+Telephony is a commodity with many India-registered vendors (Exotel, Servetel, Knowlarity, …) — and
+**Twilio/Plivo can't legally do domestic Indian masking** (TRAI requires an India-registered provider;
+foreign caller-ID on Indian numbers gets blocked). So we hide the vendor behind a small interface,
+`CallService` (`backend/services/call_masking.py`), with two implementations:
+- **`ExotelCallService`** — real masked calls via Exotel's "Connect two numbers" API. Chosen because
+  it's **pay-per-use in INR** (cheapest at our low volume — no fixed monthly fee like Servetel's
+  ₹999/mo) and the most mature masking API.
+- **`MockCallService`** — logs and returns a stub. The factory `get_call_service()` falls back to it
+  when Exotel credentials aren't set, so the **whole feature is build-and-test-able before we have an
+  account** and a half-configured deploy degrades to a no-op instead of crashing.
+
+Switching vendors later = one new subclass + flip `call_provider` in config. Routers and apps don't change.
+
+### Where in our code
+- **Service** `backend/services/call_masking.py`: the `CallService` interface, `ExotelCallService`
+  (POSTs `From`/`To`/`CallerId` to `…/Calls/connect.json` with basic auth), `MockCallService`, the
+  `get_call_service()` factory, `normalize_in_phone()` (→ E.164 `+91…`), `pick_virtual_number()` (picks
+  from the `CALL_VIRTUAL_NUMBERS` pool).
+- **Endpoint** `backend/routers/calls.py`: `POST /calls/order/{order_id}` — resolves **both** real
+  numbers server-side from the order (leg A = the *initiator*, who rings first; leg B = the other
+  party), authorises the caller against that order, bridges them, and writes a `call_logs` row. The
+  apps get back only `{ ok, status, virtual_number }` — **never** the real numbers.
+- **Provider callback** `POST /calls/provider/callback`: public (Exotel can't send our bearer token);
+  matches by the provider's `CallSid` and fills in final `status` + billed `duration_seconds`.
+- **Audit** `GET /calls/logs` (admin-only) + the `call_logs` table (migration `010_call_masking.sql`).
+- **Config** (`config.py`): `call_provider`, `exotel_*`, `call_virtual_numbers`, `backend_public_url`.
+
+### How the two legs are resolved (the clever reuse)
+The order **already** carries `delivery_boy_phone`, stamped on dispatch as the **store phone** when
+self-delivering or the **partner phone** when assigned (Concept from the 2026-06-21 self-delivery work).
+So masking doesn't care *which* delivery mode is in play — the deliverer leg is just
+`order.delivery_boy_phone` (falling back to the store's own phone before dispatch). The customer leg is
+`users.phone` for `order.customer_id`. The **prerequisite gap** we had to fill: customers sign up with
+Google/email, which never captures a phone — so "add your number" is now required before the
+customer-side call works.
+
+### Real example
+A self-delivering store owner is outside the customer's building and taps **Call customer**. The app
+calls `POST /calls/order/{id}`. Backend reads leg A = the shop's phone, leg B = the customer's phone,
+picks the ExoPhone, and asks Exotel to connect them. The **owner's** phone rings first (showing
+`+91-VIRTUAL`); when he answers, the **customer's** phone rings (also `+91-VIRTUAL`). They talk; neither
+saw the other's real number. When the call ends Exotel POSTs the duration to our callback, and the
+`call_logs` row is completed.
+
+### Impact / what we gained
+Customer and rider can coordinate deliveries with **zero exposure of personal numbers**, on the cheapest
+compliant option for our volume, behind an abstraction we can re-price/re-vendor in one file. Every call
+is logged for spend and dispute auditing.
+
+### If we had NOT done this
+Either we'd print real phone numbers on the order screen (privacy/safety leak → spam, harassment, riders'
+numbers harvested), or delivery coordination would rely on guessing the address with no way to call —
+more failed deliveries. Hardcoding one vendor's SDK would also lock us into its pricing and risk illegal
+foreign-origin masking under TRAI rules.
+
+---
+
+## 💡 Concept 26: Checkpointing an ephemeral real-time stream — the "last-known position" pattern
+
+**What:** live delivery tracking has two jobs that pull in opposite directions. (1) *Be real-time* —
+the rider's GPS must reach the watching customer in well under a second, so the fan-out is **in-memory**
+over a WebSocket (no DB in the hot path). (2) *Be durable* — but a purely in-memory stream forgets
+everything the instant it's not flowing: a customer who opens tracking **between** two rider pings sees a
+**blank map**, and a backend restart loses the position entirely. The fix is a **checkpoint**: alongside
+the live stream, write the latest point to the DB **on a throttle** (every ~15 s, not every 3 s ping),
+and **seed** any newly-connected customer with that stored point immediately.
+
+**Why throttle the write:** the rider pings ~every 3 s. Writing each ping = 20 DB writes/minute/order for
+data that's already being delivered live — pure waste. The live socket is the source of truth for
+"right now"; the DB row is just a **periodic snapshot** for "what was the last thing we knew." 15 s is
+plenty fresh for a seed and cuts the write rate ~5×.
+
+**Why a freshness gate on the seed:** a stored point is only shown to a fresh customer if it was written
+in the last **5 minutes**. Otherwise an order that paused (rider offline, app backgrounded) would show a
+stale marker *as if it were live* — worse than showing nothing. Old checkpoint → no seed → blank map
+until the next real ping (honest).
+
+**Where:** `backend/services/location_ws.py` — `_persist_location()` (throttled `UPDATE orders SET
+last_lat/last_lng/last_location_at`), called from `_forward_rider_update()`; `_seed_point()` builds the
+initial frame on customer connect from `orders.last_*`. Columns added in migration
+`011_order_location_persist.sql`.
+
+**Real example:** rider goes out_for_delivery, streams GPS. The customer closes the app at a red light
+and reopens it 40 s later. Old behaviour: blank map for up to 3 s until the next ping. New behaviour: the
+socket connects, the backend instantly sends the 15 s-old checkpoint, the marker appears at once, then
+the next live ping glides it forward.
+
+**Impact / if NOT implemented:** every reconnect (and there are many — app backgrounding, network blips,
+the 5 s auto-reconnect) shows a blank map until a fresh ping lands, which on a parked or slow rider can be
+seconds of "is it even working?" anxiety. And nothing about the delivery's path survives a worker restart.
+The pattern is the standard way Zomato/Swiggy-style trackers feel instant on open without paying for a DB
+write on every GPS tick.
+
+---
+
 ## 🎓 Vocabulary Glossary — Session 2026-06-13 additions
 
 | Term | Simple Definition |
@@ -1546,10 +1664,21 @@ exactly the cross-wiring the whole change exists to prevent.
 | DB-driven CMS | Categories/subcategories/products stored as editable DB rows (admin-managed), not derived or hardcoded |
 | Multipart upload | Sending a file's bytes in an HTTP form field (how the admin image upload reaches Supabase Storage) |
 | Object storage public URL | A stable web URL to a stored file; we keep the URL in the DB rather than baking image paths into the app |
+| Call masking / number masking | Connecting two people through a virtual number so neither sees the other's real phone |
+| Call leg | One side of a bridged call (leg A = initiator, rings first; leg B = the other party) |
+| Virtual number / ExoPhone | The provider-owned number both callers see as caller ID, hiding the real numbers |
+| Cloud telephony (CPaaS) | A provider (Exotel, etc.) that places/bridges phone calls via an HTTP API |
+| Provider-agnostic abstraction | Hiding a vendor behind an interface so it can be swapped without changing callers |
+| Status callback (webhook) | A URL the provider POSTs to when a call ends, carrying final status + billed duration |
+| E.164 | The international phone-number format (`+91XXXXXXXXXX`) we normalise to before calling |
 
 ---
 
-*Last updated: 2026-06-21 — Added Concept 24 (one app / four marketplaces: `marketplace_type`
+*Last updated: 2026-06-27 (#2) — Added Concept 26 (checkpointing an ephemeral real-time stream:
+throttled `orders.last_*` writes + freshness-gated late-join seed for live tracking).
+Earlier 2026-06-27 — Added Concept 25 (call masking: provider-agnostic `CallService`, Exotel
+connect-two-numbers bridging, `call_logs` audit, customer-phone prerequisite).
+Earlier: 2026-06-21 — Added Concept 24 (one app / four marketplaces: `marketplace_type`
 discriminator, type-correct order routing, DB-driven category CMS, Supabase Storage image upload).
 Earlier: 2026-06-13 — Added Concepts 21–22 (Firebase Remote Config for dynamic home UI,
 SharedPreferences for the persistent default address) from the customer-app home revamp session.

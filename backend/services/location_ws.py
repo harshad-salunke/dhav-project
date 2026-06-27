@@ -2,7 +2,17 @@
 Live delivery-location WebSocket hub.
 
 Delivery boy streams GPS (~every 3 s); subscribed customers receive it live.
-Nothing is persisted — location is ephemeral.
+
+PERSISTENCE
+-----------
+The live fan-out stays in-memory (low latency), but every ~15 s we ALSO write the
+latest point to `orders.last_lat/last_lng/last_location_at`. That gives us two
+things the ephemeral-only design lacked:
+  • a customer who opens (or reopens) tracking is seeded with the last-known
+    position immediately, instead of staring at a blank map until the next ping;
+  • a durable record that survives a worker restart and works across workers.
+Writes are throttled (not every 3 s ping) so the DB isn't hammered — the live
+stream is what's real-time, the DB row is a periodic checkpoint (Zomato-style).
 
 SCALING DESIGN
 --------------
@@ -25,6 +35,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime, timezone
 
 from fastapi import WebSocket, WebSocketDisconnect
 from firebase_admin import auth as firebase_auth
@@ -40,9 +51,14 @@ _local_customers: dict[str, set[WebSocket]] = {}
 _order_handlers: dict[str, object] = {}
 # order_id -> (lat, lng, monotonic_ts) of the last update we forwarded
 _last_sent: dict[str, tuple[float, float, float]] = {}
+# order_id -> monotonic ts of the last time we persisted to the DB
+_last_persisted: dict[str, float] = {}
 _lock = asyncio.Lock()
 
-_MIN_INTERVAL_S = 1.0  # throttle: never forward faster than 1/s per order
+_MIN_INTERVAL_S = 1.0       # throttle: never forward faster than 1/s per order
+_DB_PERSIST_INTERVAL_S = 15.0  # throttle: write last-known to the DB at most every 15 s
+# Only seed a fresh customer from the DB if the checkpoint is still recent.
+_SEED_MAX_AGE_S = 300.0
 
 
 def _channel(order_id: str) -> str:
@@ -115,6 +131,7 @@ async def _close_local(order_id: str) -> None:
         sockets = _local_customers.pop(order_id, None)
         handler = _order_handlers.pop(order_id, None)
         _last_sent.pop(order_id, None)
+        _last_persisted.pop(order_id, None)
     if handler is not None:
         await redis_bus.unsubscribe(_channel(order_id), handler)
     for ws in list(sockets or ()):
@@ -125,6 +142,39 @@ async def _close_local(order_id: str) -> None:
 
 
 # ── rider-side ingest ──────────────────────────────────────────────────────────
+
+async def _persist_location(order_id: str, lat: float, lng: float) -> None:
+    """Throttled checkpoint of the rider's position to the orders row."""
+    now = time.monotonic()
+    last = _last_persisted.get(order_id)
+    if last is not None and (now - last) < _DB_PERSIST_INTERVAL_S:
+        return
+    _last_persisted[order_id] = now
+    try:
+        async with pool().acquire() as conn:
+            await conn.execute(
+                "UPDATE orders SET last_lat=$2, last_lng=$3, last_location_at=now() "
+                "WHERE id=$1",
+                order_id, lat, lng,
+            )
+    except Exception:
+        # A failed checkpoint must never break the live stream — just retry next tick.
+        log.warning("location persist failed for order %s", order_id, exc_info=True)
+        _last_persisted.pop(order_id, None)
+
+
+def _seed_point(order: dict) -> dict | None:
+    """Build the initial {lat,lng,ts} for a customer from the DB checkpoint,
+    or None if there's no recent stored position."""
+    lat, lng, at = order.get("last_lat"), order.get("last_lng"), order.get("last_location_at")
+    if lat is None or lng is None or at is None:
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - at).total_seconds() > _SEED_MAX_AGE_S:
+        return None  # stale checkpoint — don't show an old position as "live"
+    return {"lat": float(lat), "lng": float(lng), "ts": int(at.timestamp() * 1000)}
+
 
 async def _forward_rider_update(order_id: str, lat: float, lng: float, ts) -> None:
     # Throttle + delta: drop bursts and no-move repeats to cut network traffic.
@@ -143,6 +193,9 @@ async def _forward_rider_update(order_id: str, lat: float, lng: float, ts) -> No
     published = await redis_bus.publish(channel, msg)
     if not published:
         await _deliver_local(order_id, msg)
+
+    # Durable checkpoint (throttled) so late-joining customers see a marker at once.
+    await _persist_location(order_id, lat, lng)
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
@@ -166,7 +219,12 @@ async def location_ws_endpoint(websocket: WebSocket, order_id: str) -> None:
         return
 
     async with pool().acquire() as conn:
-        row = await conn.fetchrow("SELECT status, assigned_delivery_boy_id, accepted_by_store_id FROM orders WHERE id=$1", order_id)
+        row = await conn.fetchrow(
+            "SELECT status, customer_id, assigned_delivery_boy_id, accepted_by_store_id, "
+            "last_lat, last_lng, last_location_at "
+            "FROM orders WHERE id=$1",
+            order_id,
+        )
     order = dict(row) if row else None
     if not order or order.get("status") != "out_for_delivery":
         await websocket.send_json({"error": "order_not_active"})
@@ -207,6 +265,16 @@ async def location_ws_endpoint(websocket: WebSocket, order_id: str) -> None:
 
         await _add_customer(order_id, websocket)
         await websocket.send_json({"status": "connected", "role": "customer"})
+
+        # Seed the map immediately with the last-known checkpoint (if recent),
+        # so the customer isn't staring at a blank map until the next live ping.
+        seed = _seed_point(order)
+        if seed is not None:
+            try:
+                await websocket.send_json(seed)
+            except Exception:
+                pass
+
         try:
             while True:
                 await websocket.receive_text()  # keepalive pings

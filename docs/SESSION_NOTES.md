@@ -37,6 +37,85 @@
 
 ---
 
+## Session 2026-06-27 (#2) — Live location tracking: bug hunt + DB checkpointing
+
+**Current Phase:** Enhancement Mode
+**Files modified:**
+- Backend: `main.py` (WS route path fix), `services/location_ws.py` (SELECT + persistence + seed),
+  `migrations/011_order_location_persist.sql` (new) + folded into `000_full_schema.sql`, `API_REFERENCE.md`.
+- Customer app: `core/services/location_ws_service.dart` (init-message protocol + keepalive ping).
+- Docs: `SYSTEM_DESIGN_NOTES.md` (Concept 26), `ENHANCEMENTS.md`.
+
+### What I did today:
+- Harshad asked me to **verify live tracking works, fix bugs, handle multiple tracking, make it
+  interval-based (not continuous) like Zomato/Swiggy with good animation, and persist to DB at intervals.**
+- **Audited the whole pipeline** (backend WS hub + customer tracking screen + store streamer). Found it
+  was **fully broken** by THREE independent bugs, each fatal alone:
+  1. **Route path mismatch** — `main.py` mounted `/ws/location/{order_id}`; both apps + docs use
+     `/ws/order/{order_id}/location`. Nothing ever connected. → fixed the mount.
+  2. **Customer auth via query params** — but the backend reads `{token,role}` from the **first JSON
+     message** (the store side already complies). → customer app now sends that frame.
+  3. **`customer_id` missing from the connect SELECT** — so `uid != order.get("customer_id")` was always
+     `None` → every customer got 4003 forbidden. → added it to the SELECT.
+- **Verified the parts that were already right** so I didn't "fix" them needlessly: multiple tracking
+  (per-order channels + per-socket sets), 3 s interval ticker + 5 m distanceFilter on the rider side
+  (already interval-based, not continuous), and the 2 s easeInOut marker glide + camera follow.
+- **Added DB checkpointing** (the "persist to DB" ask): throttled ~15 s write to new
+  `orders.last_lat/last_lng/last_location_at`, and on customer connect the backend **seeds** the map with
+  that point if it's < 5 min old → no blank map on open/reopen. Migration `011`. Wrote Concept 26.
+- Added a 25 s customer **keepalive ping** so idle Render proxies don't drop the socket.
+
+### What worked:
+- Backend `py_compile`-clean; customer `location_ws_service.dart` `flutter analyze`-clean (0 issues).
+
+### What broke / blockers:
+- **NOT yet device-run / deployed.** ⚠️ To go live: (1) run `011_order_location_persist.sql` in Supabase;
+  (2) `git push origin main` → Render (the route fix is what makes tracking connect at all); (3) rebuild
+  the customer app. Then device-test end-to-end.
+
+---
+
+## Session 2026-06-27 — Call masking module (private deliverer ⇄ customer calls)
+
+**Current Phase:** Enhancement Mode
+**Files modified:**
+- Backend: `services/call_masking.py` (new), `routers/calls.py` (new), `models/call.py` (new),
+  `migrations/010_call_masking.sql` (new) + folded into `000_full_schema.sql`, `config.py`, `main.py`,
+  `API_REFERENCE.md`.
+- Customer app: `core/services/call_service.dart` (new), `features/orders/order_tracking_screen.dart`,
+  `features/auth/profile_setup_screen.dart`.
+- Store app: `features/orders/active_order_screen.dart`.
+- Docs: `SYSTEM_DESIGN_NOTES.md` (Concept 25), `ENHANCEMENTS.md`.
+
+### What I did today:
+- **Researched** call-masking providers. Key facts: masking = bridge 2 call legs through a virtual
+  number; **Twilio/Plivo can't do domestic Indian masking (TRAI needs an India-registered provider)**;
+  chose **Exotel** (pay-per-use INR = cheapest at low volume, mature "Connect two numbers" API).
+- Built a **provider-agnostic `CallService`** (Exotel + Mock fallback) so the feature works before creds
+  exist and the vendor is swappable in one file.
+- Endpoint `POST /calls/order/{order_id}` resolves both legs from the order (deliverer =
+  `order.delivery_boy_phone`, customer = `users.phone`), authorises, bridges, logs to `call_logs`, and
+  returns NO real numbers. Plus Exotel status webhook + admin `/calls/logs`.
+- Removed the **privacy leak**: customer + store apps used to `tel:` the raw number; both now call the
+  masked endpoint. Added Phase-0 **customer phone capture** (profile field + on-demand dialog) since
+  Google/email signup never collected a phone.
+
+### What worked:
+- Backend `py_compile` + import OK (routes register, mock provider + phone-normalise verified).
+- customer_app (3 files) + store_app (1 file) **`flutter analyze` clean (0 issues)**.
+
+### What broke / blockers:
+- None in code. **Not yet deployed/device-run.** Real calls need an Exotel account (runs in `mock`
+  mode until then).
+
+### NEXT TIME — START HERE:
+1. Run `010_call_masking.sql` in Supabase. 2. `git push origin main` (deploy backend). 3. Create Exotel
+account + 1 ExoPhone, set `CALL_PROVIDER=exotel` + `EXOTEL_*` + `CALL_VIRTUAL_NUMBERS` +
+`BACKEND_PUBLIC_URL` env vars on Render. 4. Device-test both call buttons (numbers must stay hidden).
+Optional: admin UI for `/calls/logs`.
+
+---
+
 ## 🔖 CURRENT STATUS (Always update this at top)
 
 **Current Phase:** 🚀 ENHANCEMENT MODE — all build phases (0–8) complete. Tracker: **`docs/ENHANCEMENTS.md`** (read it first; it also has the current-architecture truth table).

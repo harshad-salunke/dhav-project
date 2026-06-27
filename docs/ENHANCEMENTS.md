@@ -37,6 +37,81 @@
 
 ## ✅ ENHANCEMENT LOG (newest first)
 
+### 2026-06-27 (#2) — Live location tracking: fixed 3 connection-breaking bugs + DB checkpointing
+- **Trigger (Harshad):** "verify live location tracking is working, fix any bug, handle multiple
+  tracking, and make it interval-based like Zomato/Swiggy with good animation + persist to DB."
+- **Audit verdict: it was completely broken** — three *independent* bugs, each fatal on its own:
+  1. 🐞 **Route path mismatch.** `main.py` mounted the socket at **`/ws/location/{order_id}`** but
+     both apps + `API_REFERENCE.md` + all docs use **`/ws/order/{order_id}/location`** → the customer
+     and rider sockets could never reach the handler. **Fix:** mounted at the canonical path.
+  2. 🐞 **Customer never authenticated.** The customer app sent `role`/`token` as **query params**,
+     but the backend authenticates from the **first JSON message** (the store/rider side already did
+     this correctly). The handler blocked on `receive_json()` forever. **Fix:** customer app now sends
+     `{"token","role":"customer"}` as the first frame (drops the query params).
+  3. 🐞 **Customer always "forbidden".** The connect SELECT omitted `customer_id`, yet the customer
+     check is `uid != order.get("customer_id")` → always `None` → every customer rejected (4003).
+     **Fix:** added `customer_id` (and the new checkpoint columns) to the SELECT.
+- **New: DB checkpointing + late-join seed (the "persist to DB after intervals" ask).** The live
+  fan-out stays in-memory/real-time, but the rider's point is now **throttled-written every ~15 s** to
+  new `orders.last_lat/last_lng/last_location_at`. On connect a customer is **immediately seeded** with
+  the last-known checkpoint (if < 5 min old) → no more blank map until the next ping; also survives a
+  worker restart / works across workers. Migration **`011_order_location_persist.sql`** (folded into
+  `000_full_schema.sql`). Concept 26 in SYSTEM_DESIGN_NOTES.
+- **Already-good, verified (no change needed):** **multiple tracking** = per-`order_id` Redis channel +
+  per-socket set, many customers/orders isolated; **interval send** = store streams on a 3 s `Timer`
+  (not continuous) with a 5 m `distanceFilter`; **animation** = customer marker glides between points
+  over a 2 s `easeInOut` `AnimationController` + camera follow. Added a 25 s customer **keepalive ping**
+  so idle Render proxies don't drop the socket.
+- **Sync:** backend REQUIRED (route + SELECT + persistence + migration + `API_REFERENCE.md`); customer
+  app REQUIRED (init-message protocol + ping); **store app SKIP** (already protocol-correct); **admin
+  SKIP** (no data dependency — a live admin map is backlog).
+- **Status:** backend `py_compile`-clean; customer `location_ws_service.dart` **`flutter analyze`-clean
+  (0 issues)**. **NOT yet device-run / deployed.**
+- ⚠️ **Needs:** (1) run **`011_order_location_persist.sql`** in Supabase; (2) **deploy backend**
+  (`git push origin main` → Render) for the route fix + SELECT + persistence — *the route fix alone is
+  what makes tracking connect at all*; (3) rebuild the customer app. Then device-test: order →
+  out_for_delivery → store "Start Delivery & Share Location" → customer map shows the marker gliding +
+  ETA, reopen tracking → marker seeds instantly from the DB checkpoint.
+
+### 2026-06-27 — Call masking: private deliverer ⇄ customer calls (Blinkit/Swiggy style)
+- **What:** a new **call-masking module** so a store/delivery partner and a customer can phone each
+  other **without either seeing the other's real number** — both see a virtual number; a cloud-
+  telephony provider bridges the two legs. Replaces the old privacy leak where the customer app and
+  store app dialled the raw number via `tel:`.
+- **Research → decision (Concept 25 in SYSTEM_DESIGN_NOTES):** Twilio/Plivo are **ruled out** for
+  domestic Indian masking (TRAI requires an India-registered provider). Chose **Exotel** ("Connect two
+  numbers" API) — **pay-per-use in INR**, cheapest at our low volume (no fixed monthly fee like
+  Servetel ₹999/mo), most mature masking API. Built behind a **provider-agnostic `CallService`** so the
+  vendor can be swapped in one file.
+- **Backend (REQUIRED):**
+  - `services/call_masking.py` — `CallService` interface + `ExotelCallService` + `MockCallService`
+    (fallback until creds exist, so the whole flow is testable now), `get_call_service()` factory,
+    `normalize_in_phone()` (→ E.164), `pick_virtual_number()`.
+  - `routers/calls.py` — `POST /calls/order/{order_id}` (resolves both legs from the order: leg A =
+    initiator rings first, leg B = the other party; authorises caller against the order; logs to
+    `call_logs`; **never returns real numbers**), public `POST /calls/provider/callback` (Exotel status
+    → fills duration), admin `GET /calls/logs`. Mounted in `main.py` at `/calls`.
+  - `models/call.py`, config keys (`call_provider`, `exotel_*`, `call_virtual_numbers`,
+    `backend_public_url`), migration **`010_call_masking.sql`** (`call_logs` table; folded into
+    `000_full_schema.sql`). `API_REFERENCE.md` updated.
+  - **Leg-resolution reuse:** the order already carries `delivery_boy_phone` (store phone when self-
+    delivering, partner phone when assigned — from the 2026-06-21 self-delivery work), so masking is
+    delivery-mode-agnostic. Customer leg = `users.phone`.
+- **Customer app (REQUIRED):** `core/services/call_service.dart`; the order-tracking call button now
+  calls `POST /calls/order/{id}` instead of `tel:`; **Phase-0 phone capture** — a phone field added to
+  `profile_setup_screen.dart` + an on-demand "Add your phone number" dialog in the tracking screen
+  (customers sign up via Google/email → no phone, which masking needs for leg B/their own leg).
+- **Store app (REQUIRED):** "Call Customer" button on `active_order_screen.dart` (shown for
+  accepted/packed/out_for_delivery) → `POST /calls/order/{id}`, with a "number stays private" note.
+- **Admin (SKIP for now):** `GET /calls/logs` exists; an admin UI to view it is backlog.
+- **Status:** backend `py_compile`-clean + imports OK (routes register, mock provider + phone-normalise
+  verified); customer_app 3 changed files + store_app changed file **`flutter analyze`-clean (0 issues)**.
+  **NOT yet device-run / deployed.**
+- ⚠️ **Needs (to go live):** (1) run **`010_call_masking.sql`** in Supabase; (2) **deploy backend**
+  (`git push origin main` → Render); (3) create an **Exotel account + ≥1 ExoPhone (virtual number)** and
+  set env vars `CALL_PROVIDER=exotel`, `EXOTEL_SID/API_KEY/API_TOKEN/SUBDOMAIN`, `CALL_VIRTUAL_NUMBERS`,
+  `BACKEND_PUBLIC_URL` on Render — **until then it runs in `mock` mode (logs, no real call).**
+
 ### 2026-06-23 — Real catalog images + clean DB "data_init" copy-paste flow
 - **Problem (Harshad):** every category/subcategory/product image was a **LoremFlickr**
   random photo (`https://loremflickr.com/640/640/<kw>?lock=n`) → wrong/broken/flaky images.
@@ -574,6 +649,16 @@
 
 ## 🚧 IN PROGRESS / NEEDS VERIFICATION
 
+- [ ] **Live tracking — run migration `011_order_location_persist.sql`** in Supabase (adds
+      `orders.last_lat/last_lng/last_location_at`).
+- [ ] **Live tracking — deploy backend** (`git push origin main` → Render) for the WS route-path fix
+      (`/ws/order/{id}/location`) + `customer_id` SELECT + DB checkpointing. Then rebuild the customer
+      app and device-test live tracking end-to-end.
+- [ ] **Call masking — run migration `010_call_masking.sql`** in Supabase (creates `call_logs`).
+- [ ] **Call masking — deploy backend** (`git push origin main` → Render) for `/calls/*` routes.
+- [ ] **Call masking — set up Exotel** (account + ExoPhone) and set the `CALL_*`/`EXOTEL_*` env vars on
+      Render; switch `CALL_PROVIDER=mock` → `exotel`. Until then masked calls log only (no real call).
+      Then device-test: store "Call Customer" + customer "Call agent" → both phones ring, numbers hidden.
 - [ ] **Run migration `006_self_delivery.sql`** in Supabase (SQL Editor) — adds `stores.self_delivery`.
 - [ ] **Deploy backend** for self-delivery (model + `/stores/register` + `/stores/me/profile` +
       `POST /orders/{id}/dispatched` stamping). Then device-test: store with self-delivery ON →

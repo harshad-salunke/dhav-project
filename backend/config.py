@@ -48,6 +48,23 @@ class Settings(BaseSettings):
     # Settlement
     settlement_day: str = "MONDAY"
 
+    # ── Call masking (privacy-preserving deliverer <-> customer calls) ────────
+    # Provider-agnostic: switch `call_provider` without touching app code.
+    #   "exotel" → real masked calls (needs the credentials below)
+    #   "mock"   → no real call; logs + returns a stub (default until creds set)
+    call_masking_enabled: bool = True
+    call_provider: str = "mock"            # "exotel" | "mock"
+    # The virtual number(s) both parties see as caller ID. Comma-separated pool;
+    # one is enough to start. MUST be an Exotel ExoPhone you own.
+    call_virtual_numbers: str = ""
+    # Exotel API credentials — Dashboard → Settings → API Settings.
+    exotel_sid: str = ""                   # account SID (subdomain)
+    exotel_api_key: str = ""               # API key  (basic-auth username)
+    exotel_api_token: str = ""             # API token (basic-auth password)
+    exotel_subdomain: str = "api.exotel.com"   # region host (api.exotel.com / api.in.exotel.com)
+    # Public base URL of THIS backend, so Exotel can POST call status callbacks.
+    backend_public_url: str = "https://dhav-backend.onrender.com"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

@@ -13,7 +13,7 @@ from services.location_ws import location_ws_endpoint
 from services import redis_bus, cache, db as database
 from services.cache import catalog_cache, CATALOG_TTL
 from config import get_settings
-from routers import auth, customers, stores, orders, catalog, settlements, admin, delivery, notifications
+from routers import auth, customers, stores, orders, catalog, settlements, admin, delivery, notifications, calls
 
 
 async def _warm_catalog_cache():
@@ -62,9 +62,12 @@ app.include_router(settlements.router,   prefix="/settlements")
 app.include_router(admin.router,         prefix="/admin")
 app.include_router(delivery.router,      prefix="/delivery")
 app.include_router(notifications.router, prefix="/notifications")
+app.include_router(calls.router,         prefix="/calls")
 
 
-@app.websocket("/ws/location/{order_id}")
+# Canonical path used by both Flutter apps + API_REFERENCE.md.
+# (was "/ws/location/{order_id}" — a mismatch that silently broke all live tracking.)
+@app.websocket("/ws/order/{order_id}/location")
 async def location_ws(websocket: WebSocket, order_id: str):
     await location_ws_endpoint(websocket, order_id)
 

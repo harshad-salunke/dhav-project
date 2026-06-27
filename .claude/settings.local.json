@@ -167,7 +167,10 @@
       "Bash(grep \"Done\\\\.\" overrides_log2.txt)",
       "Bash(python build_seed.py)",
       "Bash(python scripts/_verify_sample.py)",
-      "Bash(python scripts/_verify_slow.py)"
+      "Bash(python scripts/_verify_slow.py)",
+      "Bash(python -m py_compile routers/calls.py services/call_masking.py models/call.py config.py main.py)",
+      "Bash(python -c \"import routers.calls as c; import services.call_masking as m; print\\('IMPORT OK'\\); print\\('routes:', [r.path for r in c.router.routes]\\); print\\('provider:', m.get_call_service\\(\\).provider_name\\); print\\('norm:', m.normalize_in_phone\\('+91 98765 43210'\\), m.normalize_in_phone\\('09876543210'\\), m.normalize_in_phone\\('bad'\\)\\)\")",
+      "Bash(python -m py_compile services/location_ws.py main.py)"
     ]
   }
 }

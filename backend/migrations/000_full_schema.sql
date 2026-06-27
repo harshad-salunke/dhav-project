@@ -220,6 +220,9 @@ CREATE TABLE IF NOT EXISTS orders (
     donation_amount          FLOAT DEFAULT 0,         -- round-up donation added at checkout
     handling_charge          FLOAT DEFAULT 0,         -- flat handling fee shown on the bill
     delivery_instructions    JSONB DEFAULT '[]',      -- ["avoid_calling","no_bell",...]
+    last_lat                 DOUBLE PRECISION,        -- live-tracking checkpoint (see 011)
+    last_lng                 DOUBLE PRECISION,
+    last_location_at         TIMESTAMPTZ,             -- when the checkpoint above was written
     created_at               BIGINT DEFAULT 0
 );
 
@@ -245,6 +248,34 @@ CREATE TABLE IF NOT EXISTS delivery_boys (
 CREATE INDEX IF NOT EXISTS idx_delivery_boys_store ON delivery_boys(store_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_boys_uid   ON delivery_boys(uid);
 CREATE INDEX IF NOT EXISTS idx_delivery_boys_email ON delivery_boys(lower(google_account_email));
+
+
+-- ── call_logs ───────────────────────────────────────────────────────────────
+-- Audit log of privacy-preserving masked calls (see migration 010). A cloud-
+-- telephony provider bridges deliverer <-> customer through a virtual number so
+-- neither sees the other's real phone. Real numbers stored for support audit
+-- only; never returned to apps.
+CREATE TABLE IF NOT EXISTS call_logs (
+    id                TEXT PRIMARY KEY,
+    order_id          TEXT,
+    initiator_uid     TEXT,
+    initiator_role    TEXT,                        -- customer | store_owner | delivery
+    direction         TEXT,                        -- deliverer_to_customer | customer_to_deliverer
+    caller_phone      TEXT,                        -- leg A (initiator), rings first
+    callee_phone      TEXT,                        -- leg B (the other party)
+    virtual_number    TEXT,                        -- masking number both parties saw
+    provider          TEXT DEFAULT 'exotel',
+    provider_call_sid TEXT,
+    status            TEXT DEFAULT 'initiated',
+    duration_seconds  INT  DEFAULT 0,
+    error_detail      TEXT,
+    created_at        BIGINT DEFAULT 0,
+    ended_at          BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_call_logs_order     ON call_logs(order_id);
+CREATE INDEX IF NOT EXISTS idx_call_logs_initiator ON call_logs(initiator_uid);
+CREATE INDEX IF NOT EXISTS idx_call_logs_sid       ON call_logs(provider_call_sid);
 
 
 -- ── strike_logs ─────────────────────────────────────────────────────────────

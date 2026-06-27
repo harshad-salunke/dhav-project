@@ -503,6 +503,16 @@ Customer receives:
 { "lat": 18.5204, "lng": 73.8567, "ts": 1716800000000 }
 ```
 
+**Persistence / late-join seed:** the live fan-out is in-memory, but the rider's
+position is also checkpointed to `orders.last_lat/last_lng/last_location_at` at
+most every ~15 s. On connect, a customer is immediately sent the last-known
+checkpoint (if written within the last 5 min) so the map isn't blank until the
+next live ping. Migration: `011_order_location_persist.sql`.
+
+**Keepalive:** the customer side sends a periodic text frame (~25 s); the backend
+treats any customer→server text as a no-op ping (keeps idle proxies from dropping
+the socket).
+
 **Error codes:**
 - `4000`: Bad init message
 - `4001`: Invalid/missing token
@@ -516,6 +526,50 @@ Customer receives:
 **Auth:** Public  
 **Purpose:** Health check  
 **Response:** `{ "status": "ok", "service": "dhav-backend", "version": "0.2.0" }`
+
+---
+
+## Call Masking (privacy-preserving deliverer ⇄ customer calls)
+
+Bridges the deliverer and the customer through a **virtual number** so neither sees the other's real
+phone. Provider-agnostic (`call_provider` = `exotel` | `mock`; falls back to `mock` until Exotel
+credentials are set). Real numbers are resolved server-side from the order and are **never** returned
+to the apps. See SYSTEM_DESIGN_NOTES Concept 25.
+
+### POST `/calls/order/{order_id}`
+**Auth:** Any authenticated user (customer, store_owner, or delivery) associated with the order  
+**Purpose:** Place a masked call about this order. The **caller (initiator) is rung first** (leg A),
+then the other party (leg B). Direction is inferred from the caller's role:
+- `customer` → calls the deliverer (`order.delivery_boy_phone`)
+- `store_owner` / `delivery` → calls the customer (`users.phone`)
+
+**Preconditions:**
+- Order status ∈ `accepted | packed | out_for_delivery` (else `409`).
+- Both numbers must exist. Missing customer phone → `422` ("Add your phone number…"); missing
+  deliverer phone → `422`.
+
+**Response:**
+```json
+{ "ok": true, "status": "initiated", "masked": true,
+  "call_id": "<uuid>", "virtual_number": "+91XXXXXXXXXX" }
+```
+**Errors:** `403` (not your order) · `409` (order not in a callable state) · `422` (a number is
+missing) · `502` (provider failed to place the call) · `503` (no virtual number configured).
+
+### POST `/calls/provider/callback`
+**Auth:** Public (telephony provider posts here; matched by `CallSid`). **Not app-facing.**  
+**Purpose:** Receives the provider's end-of-call status; updates `call_logs.status`,
+`duration_seconds`, `ended_at`. Passed to Exotel automatically as the **StatusCallback**
+(`{backend_public_url}/calls/provider/callback`).
+
+### GET `/calls/logs?order_id=&limit=`
+**Auth:** Admin  
+**Purpose:** Audit log of masked calls (who/when/duration/status). `order_id` optional filter;
+`limit` 1–500 (default 100).
+
+**Config (env vars):** `CALL_MASKING_ENABLED`, `CALL_PROVIDER`, `CALL_VIRTUAL_NUMBERS` (comma-sep
+ExoPhone pool), `EXOTEL_SID`, `EXOTEL_API_KEY`, `EXOTEL_API_TOKEN`, `EXOTEL_SUBDOMAIN`,
+`BACKEND_PUBLIC_URL`.
 
 ---
 
