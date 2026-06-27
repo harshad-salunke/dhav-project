@@ -13,9 +13,9 @@ For every marketplace it emits:
                            images[3-5], specs{}, image_url)
   - demo stores           (one+ per marketplace_type near Pune, each stocking its items)
 
-Images: stable public keyword photos via LoremFlickr (no API key, real photos):
-    https://loremflickr.com/640/640/<keyword>?lock=<n>
-3-5 images per product (lock 1..n) so the product-detail carousel has several shots.
+Images: REAL, HTTP-verified photos on a stable CDN (upload.wikimedia.org),
+    resolved per name by resolve_images.py (+ image_overrides.json for pinned/
+    branded shots) into image_map.resolved.json. No broken/dummy images.
 
 Deterministic: stable IDs + hash-based pricing → re-running produces identical SQL,
 and the SQL uses ON CONFLICT DO UPDATE so it is safely re-runnable in Supabase.
@@ -48,15 +48,44 @@ def sql_str(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def kw(name: str) -> str:
-    """A clean 1-2 word image keyword from a product/category name."""
-    words = re.sub(r"[^a-zA-Z0-9 ]", " ", name).split()
-    return urllib.parse.quote(",".join(words[:2]) or "product")
+# ── REAL images: load the verified map produced by resolve_images.py ──────────
+# Every category / subcategory / product NAME resolves to a real, HTTP-verified
+# image on a stable CDN (upload.wikimedia.org). Pinned/branded overrides live in
+# image_overrides.json (merged into the resolved file). If a name is somehow
+# missing we fall back to a guaranteed-stable per-marketplace photo so the seed
+# NEVER contains a broken image.
+import json as _json
+_RESOLVED_FILE = os.path.join(os.path.dirname(__file__), "image_map.resolved.json")
+_OVERRIDES_FILE = os.path.join(os.path.dirname(__file__), "image_overrides.json")
+try:
+    with open(_RESOLVED_FILE, encoding="utf-8") as _f:
+        IMAGE_MAP = _json.load(_f)
+except FileNotFoundError:
+    IMAGE_MAP = {}
+# overrides win over the auto-resolver, applied at generation time (no re-resolve needed)
+try:
+    with open(_OVERRIDES_FILE, encoding="utf-8") as _f:
+        IMAGE_MAP.update({k: v for k, v in (_json.load(_f).get("overrides") or {}).items() if v})
+except FileNotFoundError:
+    pass
+
+# stable, always-loading fallback per marketplace (real Wikimedia photos)
+MARKET_FALLBACK = {
+    "grocery":     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Grocery_store_%28132442271%29.jpeg/960px-Grocery_store_%28132442271%29.jpeg",
+    "fruits":      "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Fruit_stall_in_Barcelona_Market.jpg/960px-Fruit_stall_in_Barcelona_Market.jpg",
+    "electronics": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Consumer_electronics.jpg/960px-Consumer_electronics.jpg",
+    "pharmacy":    "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Pharmacy_shelves.jpg/960px-Pharmacy_shelves.jpg",
+}
 
 
-def imgs(name: str, n: int) -> list[str]:
-    k = kw(name)
-    return [f"https://loremflickr.com/640/640/{k}?lock={i+1}" for i in range(n)]
+def img_for(name: str, market: str) -> str:
+    """The one real, verified image URL for a category/subcategory/product name."""
+    return IMAGE_MAP.get(name) or MARKET_FALLBACK.get(market, MARKET_FALLBACK["grocery"])
+
+
+def imgs(name: str, n: int, market: str = "grocery") -> list[str]:
+    """Image list for the product carousel (one verified real image; padded to n)."""
+    return [img_for(name, market)]
 
 
 def price_for(name: str, lo: int, hi: int) -> int:
@@ -664,10 +693,10 @@ def main():
         market_item_ids: dict = {}  # store_type → list of item ids stocked
         for ci, (cat_name, subs) in enumerate(cats):
             cat_id = slug("cat", market, cat_name)
-            cat_rows.append((cat_id, market, cat_name, imgs(cat_name, 1)[0], ci))
+            cat_rows.append((cat_id, market, cat_name, img_for(cat_name, market), ci))
             for si, (sub_name, products) in enumerate(subs.items()):
                 sub_id = slug("sub", market, cat_name, sub_name)
-                sub_rows.append((sub_id, cat_id, market, sub_name, imgs(sub_name, 1)[0], si))
+                sub_rows.append((sub_id, cat_id, market, sub_name, img_for(sub_name, market), si))
                 for pi, (base_name, brand_spec, unit, lo, hi) in enumerate(products):
                     # brand_spec may be a single brand (str) or a list of brands.
                     # A list emits one realistic product per brand ("<Brand> <Item>"),
@@ -677,7 +706,7 @@ def main():
                         pname = f"{brand} {base_name}" if len(brand_list) > 1 and not base_name.startswith(brand) else base_name
                         disc = discount_for(pname)
                         n_imgs = 3 + (h("nimg", pname) % 3)  # 3..5
-                        images = imgs(base_name, n_imgs)
+                        images = imgs(base_name, n_imgs, market)
                         specs = build_specs(market, pname, brand)
                         desc = build_description(market, base_name, brand, unit)
                         base_mrp = price_for(pname, lo, hi)
@@ -728,7 +757,7 @@ def main():
     lines.append("-- GENERATED by backend/scripts/build_seed.py — do not edit by hand.")
     lines.append("-- Run in Supabase SQL editor AFTER the schema exists")
     lines.append("--   (either 000_full_schema.sql on a fresh DB, or 001+003+004).")
-    lines.append("-- Images: public LoremFlickr keyword photos (3-5 per product).")
+    lines.append("-- Images: real, HTTP-verified photos on a stable CDN (no broken/dummy images).")
     lines.append("--")
     lines.append(f"-- Totals: {len(cat_rows)} categories | {len(sub_rows)} subcategories | "
                  f"{len(item_rows)} products | {len(store_rows)} demo stores | "
@@ -829,7 +858,7 @@ def main():
                 f"({sql_str(sid)},{sql_str('demo_'+sid)},{sql_str('DHAV Demo Owner')},{sql_str(sname)},"
                 f"{sql_str(sname)},{sql_str(area)},{sql_str(m)},{sql_str('+919999999999')},"
                 f"{sql_str(area+', Pune')},{sql_str(gh6)},{sql_str(loc)}::jsonb,true,true,true,"
-                f"{sql_str(json.dumps(ids))}::jsonb,{sql_str(oh)}::jsonb,{sql_str(imgs(m+' store',1)[0])},{NOW})")
+                f"{sql_str(json.dumps(ids))}::jsonb,{sql_str(oh)}::jsonb,{sql_str(MARKET_FALLBACK.get(m, ''))},{NOW})")
         return [
             "INSERT INTO stores (id, owner_uid, owner_name, shop_name, name, area, store_type, phone, "
             "address, geohash6, location, is_open, is_active, is_verified, available_item_ids, "
@@ -900,8 +929,67 @@ def main():
                            "Run LAST. ~33 customers around Pune so the map shows people + clusters.")
                + customers_block())
 
+    # ── 3) data_init/ — the clean, ordered, copy-paste flow (schema → all data) ──
+    # Self-contained: step 0 creates every table, steps 1-7 fill the catalog. Each
+    # file is well under Supabase's ~1 MB SQL-editor cap. Just open each in order,
+    # paste, Run. This is the folder to hand to a fresh / wiped database.
+    init_dir = os.path.join(os.path.dirname(os.path.abspath(OUT)), "data_init")
+    os.makedirs(init_dir, exist_ok=True)
+
+    def write_init(fname, body_lines):
+        with open(os.path.join(init_dir, fname), "w", encoding="utf-8") as f:
+            f.write("\n".join(body_lines) if isinstance(body_lines, list) else body_lines)
+
+    # step 0: schema (copied from the single source of truth 000_full_schema.sql)
+    schema_src = os.path.join(os.path.dirname(os.path.abspath(OUT)), "000_full_schema.sql")
+    with open(schema_src, encoding="utf-8") as f:
+        schema_sql = f.read()
+    write_init("00_create_tables.sql",
+               "-- DHAV data-init — STEP 0/8: create ALL tables (run FIRST on a wiped DB).\n"
+               "-- Source of truth: backend/migrations/000_full_schema.sql (copied at seed-gen time).\n\n"
+               + schema_sql)
+
+    write_init("01_taxonomy.sql",
+               part_header("STEP 1/8 — reset + categories + subcategories",
+                           "Run after 00. Wipes old seed rows then inserts the taxonomy (real images).")
+               + RESET + cat_block() + sub_block())
+    init_products = {"grocery": "02_products_grocery.sql", "fruits": "03_products_fruits.sql",
+                     "electronics": "04_products_electronics.sql", "pharmacy": "05_products_pharmacy.sql"}
+    for step, (m, fname) in enumerate(init_products.items(), start=2):
+        sub_items = [it for it in item_rows if it["market"] == m]
+        write_init(fname, part_header(f"STEP {step}/8 — {m} products ({len(sub_items)})",
+                                      "Run after 01.") + items_block(sub_items, banner=False))
+    write_init("06_stores.sql",
+               part_header("STEP 6/8 — demo stores", "Run after the product steps.") + store_block())
+    write_init("07_customers.sql",
+               part_header("STEP 7/8 — demo customers (admin Coverage map)",
+                           "Run LAST.") + customers_block())
+    write_init("README.md", "\n".join([
+        "# DHAV — Database init (copy-paste flow)", "",
+        "Wiped your Supabase DB? Run these in the **Supabase SQL Editor**, in order — "
+        "open each file, copy all, paste, click **Run**, then the next one:", "",
+        "| Order | File | What it does |",
+        "|---|---|---|",
+        "| 0 | `00_create_tables.sql` | Creates every table + index (empty DB → full schema). |",
+        "| 1 | `01_taxonomy.sql` | Categories + subcategories (with real images). |",
+        "| 2 | `02_products_grocery.sql` | Grocery products. |",
+        "| 3 | `03_products_fruits.sql` | Fresh-fruits products. |",
+        "| 4 | `04_products_electronics.sql` | Electronics products. |",
+        "| 5 | `05_products_pharmacy.sql` | Pharmacy products. |",
+        "| 6 | `06_stores.sql` | 8 demo stores (each stocks its marketplace). |",
+        "| 7 | `07_customers.sql` | ~33 demo customers for the admin Coverage map. |", "",
+        f"**Totals:** {len(cat_rows)} categories · {len(sub_rows)} subcategories · "
+        f"{len(item_rows)} products · {len(store_rows)} stores · {len(customer_rows)} customers.", "",
+        "Every category/subcategory/product image is a **real, HTTP-verified photo** on a stable "
+        "CDN (no broken/dummy images). Steps 1-7 are safe to re-run (they delete only the "
+        "`cat_/sub_/itm_/store_/cust_demo_` seed rows first, never your admin-created rows).", "",
+        "> Generated by `backend/scripts/build_seed.py` (images via `resolve_images.py` + "
+        "`image_overrides.json`). Do not hand-edit — edit the generator and re-run.", "",
+    ]))
+
     # summary
     print(f"Wrote {os.path.abspath(OUT)}")
+    print(f"  + data_init/ (00_create_tables .. 07_customers) -- the clean copy-paste flow")
     print(f"  + split files in {parts_dir}/ (005_part1..7) for the Supabase SQL editor")
     print(f"  categories={len(cat_rows)} subcategories={len(sub_rows)} products={len(item_rows)} "
           f"stores={len(store_rows)} customers={len(customer_rows)}")

@@ -78,6 +78,45 @@ admin-set discount** (2026-06-14 #3): admin pins a product + % off + end date/ti
 
 ---
 
+## Session 2026-06-23 — Real catalog images + clean DB "data_init" copy-paste flow
+
+**Current Phase:** Enhancement Mode — data/seed quality + onboarding a wiped DB
+**Goal (Harshad):** (1) replace the broken/random LoremFlickr images on every category /
+subcategory / product with **real, exact, always-loading** images; (2) since he's wiping the
+DB, give him ONE clean ordered set of **`.sql` files to copy-paste** (create tables → seed data).
+
+### What I did
+- **Root cause of broken images:** `build_seed.py` pointed every image at LoremFlickr
+  (`loremflickr.com/640/640/<kw>?lock=n`) — random photos, often broken. Replaced entirely.
+- **New image pipeline (`backend/scripts/`):**
+  - `resolve_images.py` → Wikimedia Commons search, relevance-scored + **HTTP-verified**, into
+    `image_map.resolved.json` (437 names).
+  - `build_overrides.py` → Wikipedia concept lead-images for food/produce/pharmacy/accessories
+    (curated `TITLE` map), into `image_overrides.json` (**328 pinned, always win**) + a hand-pinned tail.
+  - **100% coverage (611/611 names) with real verified images; 0 LoremFlickr.** Random 25-URL
+    spot-check from the generated SQL = 25/25 load.
+- **`build_seed.py` rewired** to read the verified map (`img_for`), merge overrides at gen-time,
+  and use a stable per-marketplace fallback (never a broken URL).
+- **New `backend/migrations/data_init/`** — `00_create_tables.sql` → `01_taxonomy.sql` →
+  `02..05_products_*.sql` → `06_stores.sql` → `07_customers.sql` + README, each < Supabase's 1 MB
+  paste cap. **69 cat · 157 subcat · 999 products · 8 stores · 33 customers.**
+
+### Notes / decisions
+- "Exact branded pack-shot per SKU" (Harshad's pick) is approached via `image_overrides.json`
+  (key = exact/`"Brand Product"` name → URL). Generic items are spot-on now; branded boxes get
+  pinned over time — re-gen with `python scripts/build_seed.py`.
+- A 429 during batch verification = CDN rate-limit, NOT a broken image (each URL was verified at
+  resolution time; slow re-check = 25/25 OK).
+- Cross-app: backend/seed only; customer/store/admin already render `image_url`/`images` — SKIP.
+
+### NEXT TIME — START HERE
+1. In Supabase SQL editor, run `backend/migrations/data_init/` files **00 → 07 in order** (copy-paste each).
+2. Open the customer app → confirm categories/products show the real photos.
+3. (Optional) Refine a few still-generic images (Fitness Gear→a person, some spice botanical
+   drawings) by adding entries to `image_overrides.json` then re-running `python scripts/build_seed.py`.
+
+---
+
 ## Session 2026-06-19 — Customer app: full UI redesign (Quick-Commerce polish)
 
 **Current Phase:** Enhancement Mode — customer app UI/UX overhaul

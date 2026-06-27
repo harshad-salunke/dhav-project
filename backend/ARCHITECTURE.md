@@ -1,5 +1,8 @@
 # DHAV Backend — System Architecture
 
+just for undertnand of me(don't consider this) : provider‑agnostic call service 
+
+
 > ⚠️ **PARTIALLY OUTDATED (as of 2026-06-13).** Data layer migrated to **Supabase
 > PostgreSQL** (`services/db.py` + `migrations/`), files to Supabase Storage, hosting to
 > **Render** (`https://dhav-backend.onrender.com`). Firebase = Auth + FCM only now.

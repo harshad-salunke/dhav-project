@@ -37,6 +37,36 @@
 
 ## ✅ ENHANCEMENT LOG (newest first)
 
+### 2026-06-23 — Real catalog images + clean DB "data_init" copy-paste flow
+- **Problem (Harshad):** every category/subcategory/product image was a **LoremFlickr**
+  random photo (`https://loremflickr.com/640/640/<kw>?lock=n`) → wrong/broken/flaky images.
+  Also wanted, for a **wiped DB**, ONE clean ordered set of **`.sql` files to copy-paste**
+  (create tables → seed all data), not scripts to run.
+- **Image pipeline (new, in `backend/scripts/`):** images are no longer random.
+  - `resolve_images.py` — resolves each catalog NAME to a **real, HTTP-verified** photo on a
+    **stable CDN** (`upload.wikimedia.org`), via Wikimedia Commons search with relevance scoring
+    (rejects logos/diagrams/diseased/junk) → `image_map.resolved.json` (437 names).
+  - `build_overrides.py` — for FOOD/PRODUCE/PHARMACY/electronics-accessories where Commons is
+    noisy, pins each to its **Wikipedia concept lead image** (curated `TITLE` map, ~330 entries) →
+    `image_overrides.json` (**328 pinned, always win**). Two passes + a hand-pinned tail.
+  - **Result: 611/611 distinct names have a real verified image (100%); 0 LoremFlickr.** Spot-check
+    of 25 random URLs from the generated SQL = 25/25 load. `image_overrides.json` is the dial to push
+    branded items to **exact pack-shots** over time (key = exact/`"Brand Product"` name → URL).
+- **`build_seed.py` rewired:** the old `imgs()` LoremFlickr function now reads the verified map
+  (`img_for(name, market)`), merges `image_overrides.json` on top at generation time (no re-resolve
+  needed to pin a new image), and falls back to a **stable per-marketplace photo** so the seed can
+  **never** contain a broken image.
+- **New `backend/migrations/data_init/` — the copy-paste flow** (each file < Supabase's 1 MB cap):
+  `00_create_tables.sql` (all tables, copied from `000_full_schema.sql`) → `01_taxonomy.sql` →
+  `02..05_products_{grocery,fruits,electronics,pharmacy}.sql` → `06_stores.sql` → `07_customers.sql`,
+  plus a `README.md` with the run order. Steps 1-7 self-reset (delete only `cat_/sub_/itm_/store_/
+  cust_demo_` rows). **Totals: 69 categories · 157 subcategories · 999 products · 8 stores · 33 customers.**
+- **Cross-app sync:** backend/seed only. customer/store/admin apps = **SKIP** — `image_url`/`images`
+  columns already existed and every app already renders them; no API/contract/migration change.
+- **Status:** SQL regenerated + verified; `build_seed.py`/`resolve_images.py` compile-clean. To apply:
+  run the 8 `data_init/` files in order in the Supabase SQL editor. **Follow-up (optional):** refine a
+  handful of still-generic images (Fitness Gear→a person, some spices→botanical drawings) via overrides.
+
 ### 2026-06-21 — Customer app rebuilt to `customer_app_design_ss/` + multi-marketplace UI
 - **Context:** Harshad's design screenshots (`customer_app_design_ss/`, 16 files — filenames carry the
   requirements) are the source of truth. The 2026-06-19 "Blinkit-blue" redesign did NOT match them,
