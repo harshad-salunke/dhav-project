@@ -37,6 +37,74 @@
 
 ## ✅ ENHANCEMENT LOG (newest first)
 
+### 2026-07-04 — MEGA BATCH (plan-approved): money fix, barcode onboarding, search, banners, tracking
+One planned batch across ALL four surfaces, delivered as four release groups:
+
+- **A) ₹10 flat platform fee + settlement fix (was the "settlement shows ₹0" bug — HIGHEST PRIORITY).**
+  Platform fee is now a **flat ₹10/order** (replaces 5%): customer pays it (new bill line in cart +
+  order detail), store collects via COD and owes it to DHAV. Settlement sweep REWRITTEN to
+  `settlement_id` tagging (sweeps all unsettled delivered orders from before this Monday; idempotent;
+  no more ₹0 rows) + per-order breakdown endpoints (`GET /settlements/{id}/orders`, `unsettled_orders`
+  on `/store/current`) + `POST /admin/settlements/run` manual trigger + public `GET /catalog/fees`.
+  Store Earnings tab: "THIS WEEK — NOT YET SETTLED" card with order rows + tappable history breakdown.
+  Admin: settlements table FIXED (was parsing 4 wrong keys → blank/₹0; Mark Paid posted an empty body →
+  422 every time), breakdown dialog, Run-sweep button. Fixed store-accept dropping handling/donation
+  from the total, and the customer order model parsing `product_total` (backend sends
+  `total_product_amount`). Migration **012**. Delivery stays ₹0 behind `delivery_fee_mode`
+  ("free"|"flat"|"per_km") for later.
+- **B) Notification channels.** Order ringtone now plays ONLY for `new_order`: backend `_send` routes
+  per-recipient channels (`dhav_incoming_orders` / `dhav_general` / `dhav_customer_orders`), store app
+  gained the `dhav_general` channel + background handling for data-only general pushes, and the
+  manifest default channel moved OFF the ringtone channel (the root cause).
+- **C) Barcode product onboarding + admin approval (Global Catalog pipeline).** Store scans a barcode
+  (new mobile_scanner screen: viewfinder overlay, scan-line animation, torch, manual entry) →
+  `GET /catalog/barcode/{code}`: already in catalog → "Add to my inventory" sheet; else prefilled from
+  FREE public DBs (Open Food Facts → Open Beauty Facts → Open Products Facts, optional UPCitemdb;
+  24 h cached; verified live against OFF) → rewritten Add Product form (API-driven searchable
+  category+subcategory pickers — hardcoded lists KILLED; camera/gallery photos ≤3 via new multipart
+  upload + `POST /stores/me/upload-image`; mandatory: name/price/category/subcategory/≥1 image) →
+  admin **Product Requests** queue (new sidebar screen: review dialog with editable fields, Approve
+  publishes to the global catalog with barcode dedup via unique index + sideloads external images into
+  Supabase Storage + auto-stocks the submitting store + FCM notifies on the quiet channel; Reject with
+  reason) → store **My Submissions** screen shows status/reasons. Migration **014**; taxonomy dedup
+  guards + legacy `category`→`category_id` backfill in **013**.
+- **C2) Store Inventory UI overhaul.** Gradient "Add a product / SCAN" hero as the primary action,
+  product images on the cards (was a placeholder icon), barcode-first empty states, My Submissions in
+  the app bar; the old "Request Product" FAB is gone.
+- **C3) Customer search REDONE (backend-powered).** `GET /catalog/search` with **pg_trgm** typo
+  tolerance + ranking (prefix > substring > similarity; migration **015**) + `category_matches`;
+  `GET /catalog/popular` replaces the hardcoded word list. Screen rewritten: 300 ms debounce, recent
+  searches (SharedPreferences, clearable), popular products + category shortcuts in the idle state,
+  "Browse <category>" chips, shimmer/empty states, offline fallback to the local filter. Decorative
+  mic removed.
+- **C4) Per-marketplace banners.** New RC keys `home_banners_<wire>` (grocery/fruits/electronics/
+  pharmacy) + global fallback. Admin Home UI gained scope tabs (Global | per marketplace, with counts);
+  customer `HeroBanner` shows the ACTIVE marketplace's set via `UiConfigProvider.bannersFor(wire)`.
+- **C5) Image caching everywhere.** All product/banner/category images now go through
+  `CachedNetworkImage(Provider)` (13 customer call sites + store app; new shared `AppNetworkImage`
+  widgets) — no more re-downloading on every scroll/restart; placeholders + error fallbacks standard.
+- **D) Live tracking, for real this time.** Store/deliverer GPS now runs in a **foreground service**
+  (geolocator `ForegroundNotificationConfig` — persistent "Delivering order…" notification keeps GPS
+  alive when backgrounded; while-in-use permission suffices; no new package) + WS
+  reconnect-with-backoff + fixed `wsBaseUrl` `https://`→`wss://` (the store stream could never
+  connect!). Customer map: custom canvas-drawn rider badge (rotates with travel bearing, glides flat)
+  + home destination badge (replaces the "green dot"), dashed rider→door polyline, camera recenters
+  ONLY when the rider nears the viewport edge (kills the per-tick jitter; one initial fit-bounds),
+  subtle POI-free map style. Directions API deliberately skipped (billed key).
+- **Phase 0 cleanup.** Migrations 001–009 + seed_parts/ + railway configs + stray test files DELETED;
+  `data_init/` regenerated CLEAN (the corrupted 00_create_tables.sql had prose mid-file) with the
+  drop-all block commented; `build_seed.py` now emits ONLY data_init and seeds **group_id variant
+  families + demo ratings** (closes the old "seed group_id" follow-up); migrations README rewritten
+  with the rule: every schema change = numbered migration + fold into 000 + re-run build_seed.
+- **Translation (requested as optional): SKIPPED** — every decent EN→HI/MR API is metered; name_hindi/
+  name_marathi stay manual (admin/approval dialogs expose them). One-time offline batch if ever needed.
+- **Docs:** Concepts 27–30 in SYSTEM_DESIGN_NOTES (pg_trgm, barcode pipeline, foreground services,
+  idempotent money jobs); API_REFERENCE updated for every new/changed endpoint (also fixed the wrong
+  documented settlement paths + stale Railway base URL).
+- **Status:** backend `py_compile`-clean + boots (121 routes); barcode lookup verified against live
+  Open Food Facts; all three Flutter apps `flutter analyze`-clean (0 errors/warnings from this work).
+  **NOT device-run, NOT deployed, migrations NOT yet applied** — see IN PROGRESS.
+
 ### 2026-06-27 (#2) — Live location tracking: fixed 3 connection-breaking bugs + DB checkpointing
 - **Trigger (Harshad):** "verify live location tracking is working, fix any bug, handle multiple
   tracking, and make it interval-based like Zomato/Swiggy with good animation + persist to DB."
@@ -649,6 +717,22 @@
 
 ## 🚧 IN PROGRESS / NEEDS VERIFICATION
 
+- [ ] **2026-07-04 batch — run migrations 012–015 in Supabase** (SQL editor, numeric order):
+      `012_flat_fee_settlements.sql` (settlement_id + delivered_at backfill),
+      `013_taxonomy_reconcile.sql` (dedup guards + category_id backfill),
+      `014_barcode_approval.sql` (barcode + upgraded custom_item_requests),
+      `015_search_trgm.sql` (pg_trgm + GIN indexes). Run 010/011 first if still pending.
+- [ ] **2026-07-04 batch — deploy backend** (`git push origin main` → Render): flat fee,
+      settlement rewrite, notification channels, barcode/product-requests/search/popular/fees
+      endpoints, per-marketplace banner keys.
+- [ ] **2026-07-04 batch — rebuild all 3 Flutter apps** and device-test end-to-end:
+      bill shows ₹10 platform fee → deliver → Earnings this-week row → admin Run sweep →
+      settlement + breakdown + Mark Paid; scan real barcode → submit → admin approve → in
+      inventory + quiet-channel push; admin broadcast → default beep (NOT ringtone); search
+      "mlik" finds Milk, recents persist; per-marketplace banners swap with tabs; start
+      delivery → background 5 min → customer map keeps moving (custom bike marker, calm camera).
+- [ ] **Rotate the Supabase service key + Firebase service account** — they were committed to
+      the repo historically (now gitignored, local copies untouched).
 - [ ] **Live tracking — run migration `011_order_location_persist.sql`** in Supabase (adds
       `orders.last_lat/last_lng/last_location_at`).
 - [ ] **Live tracking — deploy backend** (`git push origin main` → Render) for the WS route-path fix
@@ -709,8 +793,8 @@
 
 ## 💡 ENHANCEMENT BACKLOG (ideas, not committed)
 
-- Store app UI polish to match the new customer-app quality
-- Search screen: trending searches, voice search (mic is decorative today)
+- Store app UI polish to match the new customer-app quality (inventory/earnings done 2026-07-04)
+- Search: voice search (the decorative mic was removed 2026-07-04; add real voice input later)
 - Cart: delivery-fee transparency, savings strip, suggested add-ons
 - Order Again: real item images + one-tap reorder of a full past order
 - Customer app localization toggle (EN/MR/HI) — models already carry name_mr/name_hi

@@ -37,6 +37,71 @@
 
 ---
 
+## Session 2026-07-04 — MEGA BATCH: cleanup, ₹10 flat fee + settlement fix, notification channels, barcode onboarding + approval, inventory UI, pg_trgm search, per-marketplace banners, image caching, background GPS + map polish
+
+**Current Phase:** Enhancement Mode
+**Scope:** one planned multi-phase batch (plan approved up front), executed release-style:
+A (money+sounds) → B (product pipeline) → C (customer polish) → D (tracking).
+
+**Files modified (highlights):**
+- Backend: `config.py` (flat fee + delivery_fee_mode + handling + barcode flag), `routers/orders.py`
+  (`_order_totals`, accept-recompute fix), `services/settlements.py` (REWRITTEN: settlement_id tagging),
+  `routers/settlements.py` (+`/{id}/orders`, `unsettled_orders`), `routers/admin.py` (settlement join +
+  `/settlements/run` + product-requests review + 409 on dup taxonomy + upload refactor),
+  `services/notifications.py` (channel routing + product-decision sender), NEW `services/storage.py`,
+  `services/barcode_lookup.py`, `services/image_sideload.py`, `routers/catalog.py` (+`/fees`,
+  `/barcode/{code}`, `/search`, `/popular`), `services/remote_config.py` (+4 banner keys),
+  `routers/stores.py` (+upload-image, extended custom-items), migrations **012/013/014/015** (+ all
+  folded into `000_full_schema.sql`), `scripts/build_seed.py` (group_id + ratings, data_init-only
+  output), migrations 001–009 + seed_parts + railway files DELETED, README rewritten.
+- store_app: `fcm_service.dart` (+dhav_general channel + bg handler), `AndroidManifest.xml` (default
+  channel → dhav_general), NEW `barcode_scanner_screen/onboarding_flow/my_submissions_screen`,
+  REWRITTEN `add_product_screen.dart` (prefill + API taxonomy pickers + photos), `inventory_screen.dart`
+  (scan hero + images + empty states), `earnings_screen.dart` (this-week card + breakdown sheet),
+  `settlement.dart` (id-parse FIX + SettlementOrder), `api_client.dart` (+postMultipart + detail),
+  `location_ws_service.dart` (REWRITTEN: foreground service + WS reconnect), `api_config.dart`
+  (wss:// FIX), pubspec +mobile_scanner +image_picker.
+- customer_app: `cart_provider.dart` (server-driven fees + platform fee in grandTotal),
+  `cart_screen.dart` (Platform fee line), `order.dart` (total_product_amount parse FIX + fee fields),
+  `order_detail_screen.dart` (order-stored fees), REWRITTEN `search_screen.dart` (backend search +
+  recents + popular), `catalog_provider.dart` (+isItemNearby), `ui_config_provider.dart` (+bannersFor),
+  `hero_banner.dart` (per-marketplace), image caching sweep (13 call sites → CachedNetworkImageProvider,
+  NEW `app_network_image.dart`), `order_tracking_screen.dart` (custom canvas markers + bearing + dashed
+  polyline + calm camera + map style, NEW `map_markers.dart`).
+- admin_dashboard: `settlements_screen/provider/model` (raw-column parse FIX + markPaid body FIX +
+  breakdown dialog + Run sweep), NEW `features/product_requests/` (+model/provider/route/sidebar),
+  `home_config_provider/screen` (banner scopes per marketplace).
+
+### Bugs found & fixed along the way (each was silently breaking prod):
+1. Settlement sweep summed the CURRENT week from Monday 08:00 → always ₹0, then locked it in.
+2. Store app `WeeklySettlement.fromJson` read `settlement_id` but backend sends `id` → parse crash.
+3. Admin settlement model read 4 wrong keys (`total_fee_owed` etc.) → table showed blank/₹0 rows.
+4. Admin "Mark Paid" posted an EMPTY body but backend requires `{amount, payment_mode}` → 422 always.
+5. Admin status filter used 'paid' but backend statuses are settled/partially_paid → badges never green.
+6. Store-accept recompute set `total = product + delivery`, dropping handling/donation (now + fee too).
+7. Customer `order.dart` parsed `product_total` but backend sends `total_product_amount` → always null.
+8. Store manifest default FCM channel was the RINGTONE channel → every stray push rang like an order.
+9. `wsBaseUrl` default was `https://` — WebSocketChannel needs `wss://` → store stream couldn't connect.
+10. `data_init/00_create_tables.sql` had prose injected mid-file (unrunnable) + an unconditional
+    drop-all block → regenerated clean with the wipe block commented.
+
+### Verification done:
+- Backend: `py_compile` on every touched file; app boots — all new routes registered (121 total).
+- Barcode lookup smoke-tested against LIVE Open Food Facts (real product + images; unknown code → null).
+- `flutter analyze` clean (0 errors/warnings from this work) on customer_app, store_app, admin_dashboard.
+- NOT device-run; nothing deployed; migrations 012–015 NOT yet applied.
+
+### NEXT TIME — START HERE:
+1. Run migrations **010, 011, 012, 013, 014, 015** in the Supabase SQL editor (numeric order).
+2. `git add backend docs && git commit && git push origin main` → Render deploys.
+3. Rebuild all three Flutter apps; device-test: place order → bill shows ₹10 platform fee; deliver →
+   Earnings "this week" row appears; admin Run sweep → settlement + breakdown; scan a real barcode
+   end-to-end (submit → approve → in inventory); broadcast → default beep not ringtone; start delivery →
+   background the app 5 min → customer map keeps moving with the new bike marker.
+4. Rotate the Supabase service key + Firebase service account (they were in the repo historically).
+
+---
+
 ## Session 2026-06-27 (#2) — Live location tracking: bug hunt + DB checkpointing
 
 **Current Phase:** Enhancement Mode

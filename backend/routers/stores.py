@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 
 from models.store import (
     StoreCreateRequest,
@@ -294,31 +294,84 @@ async def remove_delivery_boy(
     return {"status": "removed"}
 
 
-# ── Custom Item Requests ───────────────────────────────────────────────────────
+# ── Custom Item Requests (barcode onboarding → admin approval) ────────────────
+
+@router.post("/me/upload-image")
+async def store_upload_image(
+    file: UploadFile = File(...),
+    user: TokenVerifyResponse = Depends(require_role("store_owner")),
+):
+    """Store owner uploads a product photo (camera/gallery) for a product
+    submission. Lands in Supabase Storage under requests/{store_id}/."""
+    from services import storage
+    store_id = await _store_id_for_user(user.uid)
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (max 5 MB)")
+    try:
+        return await storage.upload_image(
+            content, folder=f"requests/{store_id}",
+            filename=file.filename, content_type=file.content_type)
+    except storage.StorageNotConfigured:
+        raise HTTPException(status_code=503, detail="Supabase service key not configured")
+    except storage.StorageUploadFailed as e:
+        raise HTTPException(status_code=502, detail=f"Upload failed: {e}")
+
 
 @router.post("/me/custom-items", status_code=201)
 async def request_custom_item(
     body: dict,
     user: TokenVerifyResponse = Depends(require_role("store_owner")),
 ):
+    """Submit a product for admin review (usually prefilled by a barcode scan).
+    On approval it enters the GLOBAL catalog and is auto-stocked for this store."""
     store_id = await _store_id_for_user(user.uid)
     item_name = (body.get("name") or "").strip()
     if not item_name:
         raise HTTPException(status_code=422, detail="Item name is required")
+
+    # A barcode that's already in the catalog must not be resubmitted — tell
+    # the app which item to add to inventory instead.
+    barcode = (body.get("barcode") or "").strip()
+    if barcode:
+        async with pool().acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id, name FROM catalog_items WHERE barcode=$1 AND barcode<>''", barcode)
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "already_in_catalog",
+                        "catalog_item_id": existing["id"],
+                        "item_name": existing["name"]})
+
+    images = [u for u in (body.get("images") or []) if u][:3]
+    external_images = [u for u in (body.get("external_image_urls") or []) if u][:3]
+    # Ingredients / allergens / nutrition auto-extracted by the barcode lookup
+    # ({label: value} strings) — flows into catalog_items.specs on approval.
+    raw_specs = body.get("specs") or {}
+    specs = ({str(k): str(v) for k, v in raw_specs.items() if str(v).strip()}
+             if isinstance(raw_specs, dict) else {})
 
     request_id = new_id()
     async with pool().acquire() as conn:
         await conn.execute("""
             INSERT INTO custom_item_requests (
                 id, store_id, requested_by_uid, name, name_hindi, name_marathi,
-                category, unit, price, notes, status, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11)
+                category, unit, price, notes, status, created_at,
+                barcode, brand, description, mrp, images, external_image_urls,
+                marketplace_type, category_id, subcategory_id, specs
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,
+                      $12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,$19,$20,$21::jsonb)
         """, request_id, store_id, user.uid,
             item_name,
             body.get("name_hindi", ""), body.get("name_marathi", ""),
             body.get("category", "Other"), body.get("unit", "piece"),
             float(body.get("price") or 0),
-            body.get("notes", ""), now_ms())
+            body.get("notes", ""), now_ms(),
+            barcode, body.get("brand", ""), body.get("description", ""),
+            float(body.get("mrp") or 0), images, external_images,
+            body.get("marketplace_type", "grocery"),
+            body.get("category_id"), body.get("subcategory_id"), specs)
     return {"request_id": request_id, "status": "pending"}
 
 

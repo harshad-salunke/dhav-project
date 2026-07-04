@@ -34,10 +34,25 @@ class Settings(BaseSettings):
     default_city_lng: float = 73.8567
 
     # Fees
-    platform_fee_percentage: float = 5.0
+    # Platform fee: flat ₹ per order, paid by the customer at checkout and owed
+    # by the store to DHAV in the weekly settlement. (Replaced the old 5%
+    # platform_fee_percentage model on 2026-07-04 — percentage is kept only so
+    # historical order rows still parse; new orders write 0 into it.)
+    platform_fee_flat: float = 10.0
+    platform_fee_percentage: float = 0.0            # legacy — no longer used for new orders
+    # Delivery charge rules: "free" (₹0, current), "flat" (base_delivery_fee),
+    # "per_km" (base + per-km × distance). Change the mode to start charging.
+    delivery_fee_mode: str = "free"                 # "free" | "flat" | "per_km"
     base_delivery_fee: float = 10.0
     delivery_fee_per_km: float = 5.0
+    # Handling charge: flat ₹ added to every order (shown in the customer bill).
+    handling_charge_flat: float = 5.0
     onboarding_grace_days: int = 30
+
+    # Barcode lookup (free public APIs — see services/barcode_lookup.py).
+    # Open*Facts sources are always on (free, no key). UPCitemdb's trial tier
+    # allows only 100 req/day, so it's opt-in as the last-resort fallback.
+    barcode_upcitemdb_enabled: bool = False
 
     # Penalties
     max_strikes_before_suspend: int = 3

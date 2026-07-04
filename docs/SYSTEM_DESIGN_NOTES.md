@@ -1641,6 +1641,149 @@ write on every GPS tick.
 
 ---
 
+## 💡 Concept 27: Typo-tolerant search with pg_trgm — trigram similarity in Postgres
+
+**What:** the customer Search tab used to filter the in-memory catalog with `String.contains` — no typo
+tolerance, no ranking, and it could only "see" whatever slice of the catalog the app had downloaded.
+`GET /catalog/search` now runs **in Postgres** with the **pg_trgm extension**: every string is broken
+into overlapping 3-letter chunks ("milk" → `mil`, `ilk`, …), and `similarity(a, b)` scores how many
+trigrams two strings share (0..1). "mlik" and "Milk" share most of their trigrams → high score → match,
+even though `LIKE '%mlik%'` finds nothing.
+
+**Why ranked bands:** results are ordered by (1) prefix match — typing "mil" should put *Milk* above
+*Buttermilk*; (2) substring match across name/brand/hindi/marathi; (3) trigram similarity for typos; then
+product rating as a tiebreak. One SQL `ORDER BY is_prefix DESC, is_substr DESC, sim DESC, rating DESC`.
+
+**Why GIN indexes:** `similarity()` on every row is a full scan. A **GIN index with `gin_trgm_ops`**
+stores which rows contain which trigrams, so Postgres jumps straight to candidate rows. Migration
+`015_search_trgm.sql` creates them on `catalog_items.name` and `.brand`.
+
+**Where:** `backend/routers/catalog.py` `/catalog/search` + `/catalog/popular`;
+`customer_app/features/search/search_screen.dart` (300 ms debounce, stale-response guard via a sequence
+number, recent searches in SharedPreferences, offline fallback to the old local filter).
+
+**Real example:** a customer types "aata" — no product is named that, but trigram similarity to "Atta"
+clears the 0.25 threshold and every atta product ranks up. The response also carries `category_matches`,
+so a "Browse Atta, Rice & Dal" chip appears above the products.
+
+**Impact / if NOT implemented:** search on phones is dominated by typos and partial words; substring-only
+search reads as "broken" the first time "no results" shows for an obvious product. pg_trgm ships free
+with Supabase — much of the effect of an external search engine at zero extra infra.
+
+---
+
+## 💡 Concept 28: Barcode product onboarding — free public product DBs + an approval queue
+
+**What:** a store owner adds a product by **scanning its barcode** (EAN/UPC). The backend resolves the
+code in three steps: (1) already in OUR catalog? → the app just stocks the existing item (the `barcode`
+column is UNIQUE, so the same physical product can never enter the catalog twice); (2) else ask **free
+public product databases** — Open Food Facts → Open Beauty Facts → Open Products Facts (identical API
+shape, one client with a base-URL list; UPCitemdb optional behind a config flag) — and prefill
+name/brand/description/images; (3) nothing found → manual form. The submission then goes to an **admin
+approval queue** (`custom_item_requests.status: pending → approved | rejected`) before it becomes a
+global catalog item.
+
+**Why an approval queue:** the catalog is shared by every store. If any store could publish directly,
+one typo or junk photo pollutes every other store's inventory picker and the customer app. The queue
+makes the admin the quality gate, and approval **auto-stocks the submitting store** so the owner still
+gets fast gratification.
+
+**Why sideload images at approval:** barcode APIs return image URLs on *their* CDNs — hot-linking makes
+our catalog depend on someone else's uptime. On approve, the backend downloads each external image
+(≤2 MB, content-type checked) and re-uploads it to our Supabase Storage bucket. Doing it at approval
+(not submission) keeps rejected requests out of the bucket.
+
+**Why cache lookups:** the public APIs are rate-limited and slow-ish. Store owners in one area scan the
+same FMCG barcodes repeatedly, so lookups (hits AND misses) are cached in the TTLCache for 24 h under
+`barcode:{code}`.
+
+**Where:** backend `services/barcode_lookup.py`, `services/image_sideload.py`, `services/storage.py`
+(shared Supabase upload core), `routers/catalog.py` `/catalog/barcode/{code}`, `routers/admin.py`
+`/admin/product-requests*`; store_app `barcode_scanner_screen.dart` (mobile_scanner),
+`barcode_onboarding_flow.dart`, rewritten `add_product_screen.dart` (image_picker + multipart upload),
+`my_submissions_screen.dart`; admin `features/product_requests/`. Migration `014_barcode_approval.sql`.
+
+**Real example:** a kirana owner scans a Britannia pack → Open Food Facts returns name, brand and two
+pack-shots → the owner sets ₹30, picks *Bakery & Biscuits*, snaps one photo → submits. The admin fixes
+the name casing and hits Approve → the item (with re-hosted images) lands in the global catalog AND that
+store's inventory, and the owner's phone pings "Product Approved ✅" on the quiet channel.
+
+**Impact / if NOT implemented:** manual product entry is the #1 onboarding friction for small stores —
+minutes of typing per SKU with inconsistent results. Scan-to-prefill cuts it to seconds, and barcode
+dedup keeps ONE canonical product per pack across all stores.
+
+---
+
+## 💡 Concept 29: Android foreground services — GPS that survives backgrounding
+
+**What:** Android aggressively freezes backgrounded apps: timers stall, GPS callbacks stop. That's why
+live tracking died the moment a deliverer switched to Google Maps or locked the screen. The sanctioned
+escape hatch is a **foreground service** — a service tied to a *persistent, user-visible notification*
+("Delivering order… sharing your live location"). While that notification shows, Android keeps the
+process alive and location updates flowing.
+
+**Why no new package:** geolocator (already in the app) does this natively — pass
+`AndroidSettings(foregroundNotificationConfig: ForegroundNotificationConfig(...))` to
+`getPositionStream` and the plugin starts a location-type foreground service with the stream. Cancelling
+the stream subscription stops the service and removes the notification.
+
+**Why no ACCESS_BACKGROUND_LOCATION:** that scary "allow all the time" permission is only needed to
+*start* location access while already backgrounded. A `location`-type foreground service **started while
+the app is in the foreground** (we start it on "Start Delivery") may keep using location under the
+normal while-in-use permission — Android 10+ policy; the manifest already declared
+`FOREGROUND_SERVICE_LOCATION`.
+
+**Where:** `store_app/core/services/location_ws_service.dart` (`_locationSettings()`), used by both
+deliverer entry points (delivery partner + self-delivering owner). The same file gained WebSocket
+**reconnect-with-backoff** (2→4→8→16→30 s) because a moving rider hops cell towers and drops sockets.
+Also fixed: `ApiConfig.wsBaseUrl` was `https://…` — `WebSocketChannel.connect` needs `wss://`, so the
+store-side stream could never connect in release config.
+
+**Real example:** owner taps "Start Delivery & Share Location", switches to Google Maps to navigate,
+pockets the phone. The persistent notification stays; GPS keeps streaming every 3 s; the customer's map
+keeps gliding. Swipe-killing the app still stops it — accepted limitation, same as rider apps generally.
+
+**Impact / if NOT implemented:** tracking only works while the deliverer stares at the DHAV app — which
+is never, because they navigate with Maps. In practice every customer map froze ~30 s into the ride.
+
+---
+
+## 💡 Concept 30: Idempotent money jobs — settlement sweeps that tag their rows
+
+**What:** the weekly settlement job used to recompute "fees this week" from a **time window** (orders
+delivered since Monday). Windows are fragile for money: the Monday-08:00 cron summed orders delivered
+since… that same Monday 00:00 → **always ₹0**, and its per-week idempotency guard then locked the ₹0 row
+in forever — the exact "settlement shows zero" bug. The rewrite flips the model: every delivered order
+starts **unsettled** (`orders.settlement_id IS NULL`); the sweep picks *all unsettled orders delivered
+before this Monday*, creates one settlement per store, and **stamps each order with the settlement id**
+in the same transaction.
+
+**Why tagging beats windows:** the data itself records what has been settled. Re-running finds nothing
+unsettled → naturally idempotent (there's even a manual `POST /admin/settlements/run` button now).
+Stragglers from prior weeks are swept automatically. And per-order breakdowns come free:
+`SELECT … WHERE settlement_id = $1`.
+
+**Also in this change:** the platform fee became a **flat ₹10 per order** (was 5% of product total),
+paid by the customer as a visible bill line and owed by the store to DHAV; `total_customer_amount` is
+now recomputed from ALL components on store-accept (the old code dropped handling/donation/fee);
+delivery stays ₹0 behind a configurable `delivery_fee_mode` ("free" | "flat" | "per_km").
+
+**Where:** `backend/services/settlements.py` (sweep + IST week bounds + overdue grace),
+`routers/settlements.py` (`/store/current` returns `unsettled_orders` — the live accruing week — and
+`/{id}/orders` the historical breakdown), `routers/orders.py` `_order_totals()`, `GET /catalog/fees`
+(public fee card so apps never hardcode amounts), migration `012_flat_fee_settlements.sql`.
+
+**Real example:** three orders delivered this week → the store's Earnings tab immediately shows
+"THIS WEEK — NOT YET SETTLED · ₹30" with the three order rows. Monday 08:00 IST the sweep creates one
+₹30 settlement and tags the orders; the admin drills into exactly which orders make it up and records
+the UPI payment against it.
+
+**Impact / if NOT implemented:** money code that reads its state from the clock instead of from data
+produces exactly the class of silent wrongness DHAV had: ₹0 settlements, uncollectable fees, and no way
+to answer "which orders is this bill for?"
+
+---
+
 ## 🎓 Vocabulary Glossary — Session 2026-06-13 additions
 
 | Term | Simple Definition |

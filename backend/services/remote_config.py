@@ -41,6 +41,13 @@ HOME_KEYS = [
     "home_greeting_subtitle",
     "home_search_hint",
     "home_banners",
+    # Per-marketplace banner carousels: the customer app shows
+    # `home_banners_<wire>` for the ACTIVE marketplace tab and falls back to
+    # the global `home_banners` when the marketplace key is empty/unset.
+    "home_banners_grocery",
+    "home_banners_fruits",
+    "home_banners_electronics",
+    "home_banners_pharmacy",
     "home_deal_enabled",
     "home_deal_title",
     # Deal of the Day: the admin pins one catalog item, the % off, and when the

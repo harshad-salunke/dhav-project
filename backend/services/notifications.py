@@ -64,7 +64,18 @@ def _save_notification_multi(
 
 # ── FCM send helpers ───────────────────────────────────────────────────────────
 
-def _send(token: str, title: str, body: str, data: dict, high_priority: bool = False) -> None:
+# Android notification channels (must match the channel ids the apps create):
+#   dhav_incoming_orders → store app, ringtone + full-screen. NEW ORDERS ONLY.
+#   dhav_general         → store app, system default sound (strikes, approvals…).
+#   dhav_customer_orders → customer app, system default sound.
+ORDER_CHANNEL = "dhav_incoming_orders"
+STORE_GENERAL_CHANNEL = "dhav_general"
+CUSTOMER_CHANNEL = "dhav_customer_orders"
+
+
+def _send(token: str, title: str, body: str, data: dict,
+          channel_id: str = STORE_GENERAL_CHANNEL,
+          high_priority: bool = False) -> None:
     if not token:
         print(f"[FCM] _send SKIPPED: no token (title='{title}')")
         return
@@ -75,8 +86,10 @@ def _send(token: str, title: str, body: str, data: dict, high_priority: bool = F
         android=messaging.AndroidConfig(
             priority="high" if high_priority else "normal",
             notification=messaging.AndroidNotification(
-                sound="order_alert",
-                channel_id="dhav_incoming_orders" if high_priority else "dhav_general",
+                # The order ringtone plays ONLY on the incoming-orders channel;
+                # every other notification uses the system default sound.
+                sound="order_alert" if channel_id == ORDER_CHANNEL else None,
+                channel_id=channel_id,
                 default_vibrate_timings=high_priority,
             ),
         ),
@@ -219,6 +232,7 @@ def send_order_accepted_to_customer(
         title=title,
         body=body,
         data={"type": "order_accepted", "order_id": order_id, "store_name": store_name},
+        channel_id=CUSTOMER_CHANNEL,
     )
     if customer_uid:
         _save_notification(customer_uid, title, body, "order_accepted", order_id=order_id)
@@ -236,6 +250,7 @@ def send_order_out_for_delivery(
         title=title,
         body=body,
         data={"type": "out_for_delivery", "order_id": order_id},
+        channel_id=CUSTOMER_CHANNEL,
     )
     if customer_uid:
         _save_notification(customer_uid, title, body, "out_for_delivery", order_id=order_id)
@@ -253,6 +268,7 @@ def send_order_delivered(
         title=title,
         body=body,
         data={"type": "order_delivered", "order_id": order_id},
+        channel_id=CUSTOMER_CHANNEL,
     )
     if customer_uid:
         _save_notification(customer_uid, title, body, "order_delivered", order_id=order_id)
@@ -270,9 +286,41 @@ def send_order_failed_to_customer(
         title=title,
         body=body,
         data={"type": "order_failed", "order_id": order_id},
+        channel_id=CUSTOMER_CHANNEL,
     )
     if customer_uid:
         _save_notification(customer_uid, title, body, "order_failed", order_id=order_id)
+
+
+def send_product_request_decision(
+    store_token: str,
+    request_id: str,
+    item_name: str,
+    approved: bool,
+    reason: str = "",
+    owner_uid: str | None = None,
+) -> None:
+    """Tell the store owner their product submission was approved/rejected.
+    Quiet general channel — never the order ringtone."""
+    if approved:
+        title = "Product Approved ✅"
+        body = f"'{item_name}' is now in the DHAV catalog and added to your inventory."
+    else:
+        title = "Product Rejected"
+        body = f"'{item_name}' was not approved." + (f" Reason: {reason}" if reason else "")
+    _send(
+        store_token,
+        title=title,
+        body=body,
+        data={
+            "type": "product_request_decision",
+            "request_id": request_id,
+            "approved": str(approved).lower(),
+        },
+        channel_id=STORE_GENERAL_CHANNEL,
+    )
+    if owner_uid:
+        _save_notification(owner_uid, title, body, "product_request_decision")
 
 
 # ── Admin broadcast helper ─────────────────────────────────────────────────────

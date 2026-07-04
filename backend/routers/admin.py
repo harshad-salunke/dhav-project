@@ -1,5 +1,6 @@
 import uuid
 
+import asyncpg
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from firebase_admin import auth as firebase_auth
 
@@ -508,12 +509,17 @@ async def admin_create_category(body: dict, _: TokenVerifyResponse = Depends(_ad
     if not body.get("name") or not body.get("marketplace_type"):
         raise HTTPException(status_code=422, detail="name and marketplace_type are required")
     cat_id = new_id()
-    async with pool().acquire() as conn:
-        await conn.execute("""
-            INSERT INTO categories (id, marketplace_type, name, image_url, sort_order, is_enabled, created_at, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
-        """, cat_id, body["marketplace_type"], body["name"], body.get("image_url", ""),
-            int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)), now_ms())
+    try:
+        async with pool().acquire() as conn:
+            await conn.execute("""
+                INSERT INTO categories (id, marketplace_type, name, image_url, sort_order, is_enabled, created_at, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+            """, cat_id, body["marketplace_type"], body["name"], body.get("image_url", ""),
+                int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)), now_ms())
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A category named '{body['name']}' already exists in {body['marketplace_type']}")
     await cache.invalidate("catalog")
     return {"id": cat_id, "status": "created"}
 
@@ -602,12 +608,17 @@ async def admin_create_subcategory(body: dict, _: TokenVerifyResponse = Depends(
             prow = await conn.fetchrow("SELECT marketplace_type FROM categories WHERE id=$1", body["category_id"])
         market = prow["marketplace_type"] if prow else "grocery"
     sub_id = new_id()
-    async with pool().acquire() as conn:
-        await conn.execute("""
-            INSERT INTO subcategories (id, category_id, marketplace_type, name, image_url, sort_order, is_enabled, created_at, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
-        """, sub_id, body["category_id"], market, body["name"], body.get("image_url", ""),
-            int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)), now_ms())
+    try:
+        async with pool().acquire() as conn:
+            await conn.execute("""
+                INSERT INTO subcategories (id, category_id, marketplace_type, name, image_url, sort_order, is_enabled, created_at, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+            """, sub_id, body["category_id"], market, body["name"], body.get("image_url", ""),
+                int(body.get("sort_order", 0)), bool(body.get("is_enabled", True)), now_ms())
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A subcategory named '{body['name']}' already exists in this category")
     await cache.invalidate("catalog")
     return {"id": sub_id, "status": "created"}
 
@@ -762,25 +773,178 @@ async def admin_upload_image(
     """Upload an image to Supabase Storage bucket `dhav-images` and return its public
     URL — so admin can upload category/subcategory/product images instead of pasting
     URLs. Requires SUPABASE_SERVICE_KEY + a public bucket named `dhav-images`."""
-    if not _settings.supabase_service_key:
-        raise HTTPException(status_code=503, detail="Supabase service key not configured")
-    import httpx
-    bucket = "dhav-images"
-    ext = (file.filename or "img").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "jpg"
-    path = f"{folder}/{uuid.uuid4().hex}.{ext}"
+    from services import storage
     content = await file.read()
-    url = f"{_settings.supabase_url}/storage/v1/object/{bucket}/{path}"
-    headers = {
-        "Authorization": f"Bearer {_settings.supabase_service_key}",
-        "Content-Type": file.content_type or "image/jpeg",
-        "x-upsert": "true",
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(url, content=content, headers=headers)
-    if resp.status_code not in (200, 201):
-        raise HTTPException(status_code=502, detail=f"Upload failed: {resp.status_code} {resp.text}")
-    public_url = f"{_settings.supabase_url}/storage/v1/object/public/{bucket}/{path}"
-    return {"url": public_url, "path": path}
+    try:
+        return await storage.upload_image(
+            content, folder=folder,
+            filename=file.filename, content_type=file.content_type)
+    except storage.StorageNotConfigured:
+        raise HTTPException(status_code=503, detail="Supabase service key not configured")
+    except storage.StorageUploadFailed as e:
+        raise HTTPException(status_code=502, detail=f"Upload failed: {e}")
+
+
+# ── Product Request Review (barcode onboarding approval queue) ─────────────────
+
+@router.get("/product-requests")
+async def list_product_requests(
+    status: str = Query("pending"),
+    _: TokenVerifyResponse = Depends(_admin),
+):
+    """Store product submissions awaiting review. status: pending|approved|rejected|all."""
+    base = """
+        SELECT r.*, COALESCE(st.shop_name, st.name, r.store_id) AS store_name
+        FROM custom_item_requests r
+        LEFT JOIN stores st ON st.id = r.store_id
+    """
+    async with pool().acquire() as conn:
+        if status and status != "all":
+            rows = await conn.fetch(base + " WHERE r.status=$1 ORDER BY r.created_at DESC", status)
+        else:
+            rows = await conn.fetch(base + " ORDER BY r.created_at DESC")
+    return {"requests": [dict(r) for r in rows], "total": len(rows)}
+
+
+async def _get_pending_request(request_id: str) -> dict:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM custom_item_requests WHERE id=$1", request_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Product request not found")
+    req = dict(row)
+    if req.get("status") != "pending":
+        raise HTTPException(status_code=409, detail=f"Request already {req.get('status')}")
+    return req
+
+
+async def _notify_request_decision(req: dict, approved: bool, reason: str = "") -> None:
+    from services.notifications import send_product_request_decision
+    async with pool().acquire() as conn:
+        srow = await conn.fetchrow(
+            "SELECT fcm_token, owner_uid FROM stores WHERE id=$1", req.get("store_id"))
+    send_product_request_decision(
+        (srow["fcm_token"] if srow else "") or "",
+        req["id"], req.get("name") or "product",
+        approved=approved, reason=reason,
+        owner_uid=(srow["owner_uid"] if srow else None) or req.get("requested_by_uid"),
+    )
+
+
+@router.post("/product-requests/{request_id}/approve")
+async def approve_product_request(
+    request_id: str,
+    body: dict = None,
+    user: TokenVerifyResponse = Depends(_admin),
+):
+    """Approve a submission → publish into the GLOBAL catalog + stock the
+    submitting store. `body` may override any field (name, price, mrp,
+    category_id, subcategory_id, unit, brand, description, name_hindi/marathi)
+    so the admin can correct details before publishing.
+
+    Dedup: if the barcode already exists in the catalog (raced submission),
+    the request is LINKED to that item instead of inserting a duplicate."""
+    from services.image_sideload import sideload_images
+
+    body = body or {}
+    req = await _get_pending_request(request_id)
+
+    def val(key, default=""):
+        v = body.get(key, req.get(key))
+        return v if v is not None else default
+
+    barcode = (val("barcode") or "").strip()
+    item_id = None
+
+    # 1) Barcode already in catalog → link, don't duplicate.
+    if barcode:
+        async with pool().acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id FROM catalog_items WHERE barcode=$1 AND barcode<>''", barcode)
+        if existing:
+            item_id = existing["id"]
+
+    # 2) Publish a new catalog item.
+    if item_id is None:
+        # Re-host barcode-API images on our storage (done at approval so
+        # rejected requests never touch the bucket), then the owner's photos.
+        hosted_external = await sideload_images(
+            req.get("external_image_urls") or [], folder="catalog")
+        images = (hosted_external + [u for u in (req.get("images") or []) if u])[:3]
+
+        category_id = val("category_id", None)
+        category_label = val("category") or "Other"
+        if category_id:
+            async with pool().acquire() as conn:
+                crow = await conn.fetchrow("SELECT name FROM categories WHERE id=$1", category_id)
+            if crow:
+                category_label = crow["name"]
+
+        # Ingredients/allergens/nutrition captured at scan time (admin can
+        # override via body["specs"]). Rendered by the customer app's
+        # highlight chips + "View details" sheet.
+        specs = body.get("specs", req.get("specs")) or {}
+        if not isinstance(specs, dict):
+            specs = {}
+        specs = {str(k): str(v) for k, v in specs.items() if str(v).strip()}
+
+        item_id = new_id()
+        async with pool().acquire() as conn:
+            await conn.execute("""
+                INSERT INTO catalog_items (
+                    id, name, name_hindi, name_marathi, category, marketplace_type,
+                    category_id, subcategory_id, brand, description, unit,
+                    price, mrp, barcode, image_url, images, specs,
+                    is_active, created_at, updated_at
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,
+                          $17::jsonb, true,$18,$18)
+            """, item_id, val("name"), val("name_hindi"), val("name_marathi"),
+                category_label, val("marketplace_type", "grocery"),
+                category_id, val("subcategory_id", None),
+                val("brand"), val("description"), val("unit", "piece"),
+                float(body.get("price", req.get("price")) or 0),
+                float(body.get("mrp", req.get("mrp")) or 0),
+                barcode, (images[0] if images else ""), images, specs, now_ms())
+
+    # 3) Auto-stock the submitting store (customer app shows it immediately).
+    async with pool().acquire() as conn:
+        srow = await conn.fetchrow(
+            "SELECT available_item_ids FROM stores WHERE id=$1", req.get("store_id"))
+        if srow is not None:
+            available = list(srow["available_item_ids"] or [])
+            if item_id not in available:
+                available.append(item_id)
+                await conn.execute(
+                    "UPDATE stores SET available_item_ids=$2::jsonb WHERE id=$1",
+                    req["store_id"], available)
+
+    # 4) Close the request + tell every surface.
+    async with pool().acquire() as conn:
+        await conn.execute("""
+            UPDATE custom_item_requests
+               SET status='approved', catalog_item_id=$2, reviewed_by=$3, reviewed_at=$4
+             WHERE id=$1
+        """, request_id, item_id, user.uid, now_ms())
+    await cache.invalidate("catalog")
+    await _notify_request_decision(req, approved=True)
+    return {"status": "approved", "catalog_item_id": item_id}
+
+
+@router.post("/product-requests/{request_id}/reject")
+async def reject_product_request(
+    request_id: str,
+    body: dict,
+    user: TokenVerifyResponse = Depends(_admin),
+):
+    reason = (body.get("reason") or "").strip()
+    req = await _get_pending_request(request_id)
+    async with pool().acquire() as conn:
+        await conn.execute("""
+            UPDATE custom_item_requests
+               SET status='rejected', rejection_reason=$2, reviewed_by=$3, reviewed_at=$4
+             WHERE id=$1
+        """, request_id, reason, user.uid, now_ms())
+    await _notify_request_decision(req, approved=False, reason=reason)
+    return {"status": "rejected"}
 
 
 # ── Order Management ───────────────────────────────────────────────────────────
@@ -906,16 +1070,30 @@ async def list_settlements(
     status: str = Query(None),
     _: TokenVerifyResponse = Depends(_admin),
 ):
-    if status:
-        async with pool().acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM settlements WHERE status=$1 ORDER BY created_at DESC", status
-            )
-    else:
-        async with pool().acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM settlements ORDER BY created_at DESC")
+    # Join the store name so the dashboard table can label rows without a
+    # second request (the raw settlement row only has store_id).
+    base = """
+        SELECT s.*, COALESCE(st.shop_name, st.name, s.store_id) AS store_name
+        FROM settlements s
+        LEFT JOIN stores st ON st.id = s.store_id
+    """
+    async with pool().acquire() as conn:
+        if status:
+            rows = await conn.fetch(base + " WHERE s.status=$1 ORDER BY s.created_at DESC", status)
+        else:
+            rows = await conn.fetch(base + " ORDER BY s.created_at DESC")
     settlements = [dict(r) for r in rows]
     return {"settlements": settlements, "total": len(settlements)}
+
+
+@router.post("/settlements/run")
+async def run_settlement_sweep(_: TokenVerifyResponse = Depends(_admin)):
+    """Manually trigger the weekly settlement sweep (same job the Monday cron
+    runs). Sweeps all unsettled delivered orders from before this week's Monday
+    into per-store settlements. Idempotent — a re-run finds nothing new."""
+    from services.settlements import generate_weekly_settlements
+    created = await generate_weekly_settlements()
+    return {"settlements_created": created}
 
 
 # ── Broadcast Notifications ────────────────────────────────────────────────────

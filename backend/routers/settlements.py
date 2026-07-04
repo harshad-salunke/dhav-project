@@ -17,6 +17,14 @@ async def _store_id_for_user(uid: str) -> str:
     return row["store_id"]
 
 
+# Per-order fields returned by the breakdown endpoints — the store app renders
+# these as "order total | platform fee ₹10 | delivery ₹0" rows.
+_BREAKDOWN_COLS = """
+    id AS order_id, delivered_at, total_product_amount,
+    platform_fee_amount, delivery_fee, total_customer_amount
+"""
+
+
 @router.get("/store/current")
 async def get_current_settlement(user: TokenVerifyResponse = Depends(require_role("store_owner"))):
     store_id = await _store_id_for_user(user.uid)
@@ -25,7 +33,44 @@ async def get_current_settlement(user: TokenVerifyResponse = Depends(require_rol
             "SELECT * FROM settlements WHERE store_id=$1 ORDER BY created_at DESC LIMIT 1",
             store_id,
         )
-    return {"settlement": dict(row) if row else None}
+        # Live accruing view: delivered orders not yet swept into any settlement.
+        unsettled = await conn.fetch(f"""
+            SELECT {_BREAKDOWN_COLS} FROM orders
+            WHERE accepted_by_store_id = $1
+              AND status = 'delivered'
+              AND settlement_id IS NULL
+            ORDER BY delivered_at DESC
+        """, store_id)
+    unsettled_orders = [dict(r) for r in unsettled]
+    return {
+        "settlement": dict(row) if row else None,
+        "unsettled_orders": unsettled_orders,
+        "unsettled_fee_total": round(sum(o["platform_fee_amount"] or 0.0
+                                         for o in unsettled_orders), 2),
+    }
+
+
+@router.get("/{settlement_id}/orders")
+async def get_settlement_orders(
+    settlement_id: str,
+    user: TokenVerifyResponse = Depends(require_role("store_owner", "admin")),
+):
+    """Order-wise breakdown of a settlement (owning store or admin)."""
+    async with pool().acquire() as conn:
+        srow = await conn.fetchrow("SELECT * FROM settlements WHERE id=$1", settlement_id)
+    if not srow:
+        raise HTTPException(status_code=404, detail="Settlement not found")
+    if user.role == "store_owner":
+        store_id = await _store_id_for_user(user.uid)
+        if srow["store_id"] != store_id:
+            raise HTTPException(status_code=403, detail="Not your settlement")
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(f"""
+            SELECT {_BREAKDOWN_COLS} FROM orders
+            WHERE settlement_id = $1
+            ORDER BY delivered_at DESC
+        """, settlement_id)
+    return {"settlement_id": settlement_id, "orders": [dict(r) for r in rows]}
 
 
 @router.get("/store/history")

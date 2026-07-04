@@ -45,8 +45,25 @@ async def _store_id_for_user(uid: str) -> str:
 
 def _delivery_fee(store_lat: float, store_lng: float,
                   customer_lat: float, customer_lng: float) -> float:
-    dist = haversine_km(store_lat, store_lng, customer_lat, customer_lng)
-    return round(settings.base_delivery_fee + dist * settings.delivery_fee_per_km, 2)
+    """Delivery charge by configured rule. Currently FREE (₹0); switch
+    settings.delivery_fee_mode to "flat" or "per_km" to start charging."""
+    mode = settings.delivery_fee_mode
+    if mode == "flat":
+        return round(settings.base_delivery_fee, 2)
+    if mode == "per_km":
+        dist = haversine_km(store_lat, store_lng, customer_lat, customer_lng)
+        return round(settings.base_delivery_fee + dist * settings.delivery_fee_per_km, 2)
+    return 0.0  # "free" (default)
+
+
+def _order_totals(total_product: float, handling: float, donation: float,
+                  delivery_fee: float = 0.0) -> tuple[float, float]:
+    """Single place that defines the customer bill:
+    total = products + platform fee (flat ₹) + handling + donation + delivery.
+    Returns (platform_fee_amount, total_customer_amount)."""
+    platform_fee = round(settings.platform_fee_flat, 2)
+    total = round(total_product + platform_fee + handling + donation + delivery_fee, 2)
+    return platform_fee, total
 
 
 # ── Place Order ────────────────────────────────────────────────────────────────
@@ -59,8 +76,7 @@ async def place_order(
     total_product = sum(item.total_price for item in body.items)
     handling = max(0.0, body.handling_charge)
     donation = max(0.0, body.donation_amount)
-    total_customer = total_product + handling + donation
-    platform_fee_amount = round(total_product * settings.platform_fee_percentage / 100, 2)
+    platform_fee_amount, total_customer = _order_totals(total_product, handling, donation)
     order_id = new_id()
     ts = now_ms()
 
@@ -123,8 +139,7 @@ async def place_direct_order(
     total_product = sum(item.total_price for item in body.items)
     handling = max(0.0, body.handling_charge)
     donation = max(0.0, body.donation_amount)
-    total_customer = total_product + handling + donation
-    platform_fee_amount = round(total_product * settings.platform_fee_percentage / 100, 2)
+    platform_fee_amount, total_customer = _order_totals(total_product, handling, donation)
     order_id = new_id()
 
     async with pool().acquire() as conn:
@@ -208,7 +223,14 @@ async def accept_order(
         loc.get("lat", 0), loc.get("lng", 0),
         order["customer_address"]["lat"], order["customer_address"]["lng"],
     )
-    total = (order["total_product_amount"] or 0) + fee
+    # Recompute the FULL bill from the stored components. (The old code did
+    # product + delivery only, silently dropping platform fee/handling/donation.)
+    total = round(
+        (order["total_product_amount"] or 0)
+        + (order.get("platform_fee_amount") or 0)
+        + (order.get("handling_charge") or 0)
+        + (order.get("donation_amount") or 0)
+        + fee, 2)
     async with pool().acquire() as conn:
         await conn.execute(
             "UPDATE orders SET delivery_fee=$2, total_customer_amount=$3 WHERE id=$1",

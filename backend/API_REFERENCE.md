@@ -1,6 +1,6 @@
 # DHAV Backend — Complete API Reference
 
-> Base URL (Production): `https://<railway-app>.railway.app`  
+> Base URL (Production): `https://dhav-backend.onrender.com` (Render)  
 > All endpoints require `Authorization: Bearer <Firebase ID Token>` unless marked **Public**
 
 ---
@@ -142,14 +142,27 @@ defaults `false`).
 ### DELETE `/stores/me/delivery-boys/{delivery_boy_id}`
 **Roles:** `store_owner`
 
+### POST `/stores/me/upload-image`
+**Roles:** `store_owner`  
+**Purpose:** Multipart `file` → uploads a product photo to Supabase Storage
+(`requests/{store_id}/…`, max 5 MB) → `{url, path}`. Used by the barcode
+submission flow (≤3 images per product).
+
 ### POST `/stores/me/custom-items`
 **Roles:** `store_owner`  
-**Purpose:** Request admin to add a new product to catalog  
-**Body:** `{ "name", "name_hindi?", "name_marathi?", "category", "unit", "price", "notes?" }`
+**Purpose:** Submit a product for admin review (usually prefilled by a barcode
+scan). On approval it enters the global catalog and is auto-stocked for this store.  
+**Body:** `{ "name", "name_hindi?", "name_marathi?", "category?", "unit", "price",
+"mrp?", "notes?", "barcode?", "brand?", "description?", "images?": ["≤3 Supabase URLs"],
+"external_image_urls?": ["barcode-API image URLs"], "marketplace_type",
+"category_id", "subcategory_id" }`  
+**409** `{"detail": {"code": "already_in_catalog", "catalog_item_id", "item_name"}}`
+when the barcode already exists — add that item to inventory instead.
 
 ### GET `/stores/me/custom-items`
 **Roles:** `store_owner`  
-**Purpose:** List own custom item requests
+**Purpose:** List own product submissions with `status`
+(pending|approved|rejected), `rejection_reason`, `catalog_item_id`
 
 ### GET `/stores/{store_id}`
 **Roles:** Any authenticated user  
@@ -274,6 +287,34 @@ Backed by the `wishlist (uid, item_id)` table *(migration 007)*.
 > `description`, `unit`, `price`, `mrp`, `discount_percent`, `stock_quantity`,
 > `image_url` (primary), `images` (3–5 URL array), `specs` (key→value map).
 
+### GET `/catalog/search?q=&marketplace_type=&limit=20`
+**Auth:** Public  
+**Purpose:** Typo-tolerant ranked product search (pg_trgm, migration 015).
+Prefix > substring (name/brand/hindi/marathi) > trigram similarity, rating as
+tiebreak. Returns `{items: [catalog item shape], category_matches: [{id, name,
+marketplace_type}]}` for "browse category" shortcuts.
+
+### GET `/catalog/popular?marketplace_type=&limit=10`
+**Auth:** Public  
+**Purpose:** Most-rated products for the search idle state → `{items}`. Cached 5 min.
+
+### GET `/catalog/barcode/{code}`
+**Roles:** `store_owner`, `admin`  
+**Purpose:** Resolve a scanned barcode.
+`{found_in_catalog: true, item}` → the product already exists globally (offer
+"add to inventory"). `{found_in_catalog: false, prefill, source}` → `prefill =
+{name, brand, description, quantity_text, image_urls[≤3]}` from free public DBs
+(Open Food Facts → Open Beauty Facts → Open Products Facts → optional UPCitemdb),
+cached 24 h. `prefill: null` → manual entry.
+
+### GET `/catalog/fees`
+**Auth:** Public  
+**Purpose:** The fee card the apps use to build the customer bill (never hardcode
+amounts client-side). Returns `{ platform_fee_flat, handling_charge,
+delivery_fee_mode ("free"|"flat"|"per_km"), base_delivery_fee, delivery_fee_per_km }`.
+Bill = items + platform_fee_flat + handling_charge + donation + delivery (₹0 while
+`delivery_fee_mode` = `"free"`).
+
 ### GET `/catalog/marketplaces`
 **Auth:** Public  
 **Purpose:** DB-driven marketplace verticals (admin-configurable). Returns enabled
@@ -397,6 +438,14 @@ Falls back to derived category strings only if the table is empty.
 |--------|----------|---------|
 | POST | `/admin/upload-image?folder=` | Multipart `file` → uploads to Supabase Storage bucket `dhav-images`, returns `{url, path}`. Needs `SUPABASE_SERVICE_KEY` + public bucket. |
 
+### Product Requests (barcode onboarding approval queue)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/admin/product-requests?status=pending\|approved\|rejected\|all` | Store submissions with `store_name` joined |
+| POST | `/admin/product-requests/{id}/approve` | Publish into the global catalog (body = optional field overrides). Sideloads barcode-API images to Supabase, dedupes by barcode (links instead of duplicating), auto-stocks the submitting store, FCM-notifies the owner |
+| POST | `/admin/product-requests/{id}/reject` | `{reason}` → status=rejected + FCM notify |
+
 ### Analytics
 
 | Method | Endpoint | Purpose |
@@ -408,6 +457,7 @@ Falls back to derived category strings only if the table is empty.
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | GET | `/admin/settlements` | List settlements (filter by status) |
+| POST | `/admin/settlements/run` | Manually trigger the weekly settlement sweep (idempotent; same job as the Monday cron) → `{settlements_created}` |
 
 ### Admin Notifications
 
@@ -431,11 +481,19 @@ Falls back to derived category strings only if the table is empty.
 
 ## Router: `/settlements`
 
+> Money model: every order carries a **flat ₹10 platform fee** (`platform_fee_amount`,
+> set at placement from `PLATFORM_FEE_FLAT`). The customer pays it at checkout; the
+> store collects it (COD) and owes it to DHAV. The weekly sweep (Mon 08:00 IST, or
+> `POST /admin/settlements/run`) groups all **unsettled** delivered orders
+> (`orders.settlement_id IS NULL`, delivered before this week's Monday) into one
+> settlement per store and stamps `orders.settlement_id`.
+
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| GET | `/settlements/me` | Store owner views own settlements |
-| GET | `/settlements/{id}` | Get specific settlement |
-| POST | `/settlements/{id}/pay` | Record a payment against settlement |
+| GET | `/settlements/store/current` | Store owner: latest settlement + `unsettled_orders[]` (live accruing week) + `unsettled_fee_total` |
+| GET | `/settlements/store/history` | Store owner: all own settlements, newest first |
+| GET | `/settlements/{id}/orders` | Order-wise breakdown of a settlement (owning store or admin): `{order_id, delivered_at, total_product_amount, platform_fee_amount, delivery_fee, total_customer_amount}` |
+| POST | `/settlements/{id}/mark-paid` | **Admin.** Record a payment: `{amount, payment_mode, notes?}` → updates `balance_due`/`status` (pending → partially_paid → settled) |
 
 ---
 

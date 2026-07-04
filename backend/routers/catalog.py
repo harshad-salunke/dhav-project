@@ -59,6 +59,136 @@ _DEFAULT_MARKETPLACES = [
 ]
 
 
+@router.get("/fees")
+async def get_fees():
+    """Public fee card so the apps never hardcode amounts. The customer bill =
+    items + platform_fee_flat + handling_charge + donation + delivery (₹0 while
+    delivery_fee_mode is "free")."""
+    from config import get_settings
+    s = get_settings()
+    return {
+        "platform_fee_flat": s.platform_fee_flat,
+        "handling_charge": s.handling_charge_flat,
+        "delivery_fee_mode": s.delivery_fee_mode,
+        "base_delivery_fee": s.base_delivery_fee if s.delivery_fee_mode != "free" else 0.0,
+        "delivery_fee_per_km": s.delivery_fee_per_km if s.delivery_fee_mode == "per_km" else 0.0,
+    }
+
+
+@router.get("/search")
+async def search_catalog(
+    q: str = Query(..., min_length=1, max_length=80),
+    marketplace_type: str = Query("grocery"),
+    limit: int = Query(20, le=50),
+):
+    """Typo-tolerant, ranked product search (public — powers the customer
+    Search tab). Runs in Postgres with pg_trgm (migration 015):
+      • prefix matches first ("mil" → Milk before Buttermilk),
+      • then substring matches on name/brand/hindi/marathi,
+      • then trigram similarity for typos ("mlik" → Milk),
+    ordered by rating within each band. Also returns matching CATEGORY names
+    so the app can offer "browse Dal & Pulses" shortcuts."""
+    term = q.strip()
+    if not term:
+        return {"items": [], "category_matches": []}
+    like = f"%{term}%"
+    prefix = f"{term}%"
+
+    async with pool().acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT *,
+                   (name ILIKE $3)                       AS is_prefix,
+                   (name ILIKE $2 OR brand ILIKE $2
+                    OR name_hindi ILIKE $2
+                    OR name_marathi ILIKE $2)            AS is_substr,
+                   similarity(name, $1)                  AS sim
+              FROM catalog_items
+             WHERE is_active = true
+               AND marketplace_type = $4
+               AND (
+                     name ILIKE $2 OR brand ILIKE $2
+                  OR name_hindi ILIKE $2 OR name_marathi ILIKE $2
+                  OR similarity(name, $1) > 0.25
+                  OR similarity(brand, $1) > 0.35
+               )
+             ORDER BY is_prefix DESC, is_substr DESC, sim DESC,
+                      rating DESC NULLS LAST
+             LIMIT $5
+        """, term, like, prefix, marketplace_type, limit)
+        cat_rows = await conn.fetch("""
+            SELECT id, name, marketplace_type FROM categories
+             WHERE is_enabled = true AND marketplace_type = $2
+               AND (name ILIKE $1 OR similarity(name, $3) > 0.3)
+             ORDER BY sort_order LIMIT 5
+        """, like, marketplace_type, term)
+
+    items = []
+    for r in rows:
+        d = dict(r)
+        d.pop("is_prefix", None)
+        d.pop("is_substr", None)
+        d.pop("sim", None)
+        items.append(d)
+    return {
+        "items": items,
+        "category_matches": [dict(r) for r in cat_rows],
+    }
+
+
+@router.get("/popular")
+async def popular_items(
+    marketplace_type: str = Query("grocery"),
+    limit: int = Query(10, le=30),
+):
+    """Most-rated products for the search screen's idle state (replaces the
+    old hardcoded 'popular searches' word list). Cached 5 min."""
+    cache_key = f"popular:{marketplace_type}:{limit}"
+    cached = catalog_cache.get(cache_key)
+    if cached is not None:
+        return {"items": cached}
+    async with pool().acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT * FROM catalog_items
+             WHERE is_active = true AND marketplace_type = $1
+             ORDER BY rating_count DESC NULLS LAST, rating DESC NULLS LAST
+             LIMIT $2
+        """, marketplace_type, limit)
+    items = [dict(r) for r in rows]
+    catalog_cache.set(cache_key, items, ttl=CATALOG_TTL)
+    return {"items": items}
+
+
+@router.get("/barcode/{code}")
+async def lookup_barcode(
+    code: str,
+    _: TokenVerifyResponse = Depends(require_role("store_owner", "admin")),
+):
+    """Barcode scan resolution for the store app's add-product flow.
+
+    1. If the barcode is already in the GLOBAL catalog → return that item so the
+       store just adds it to its inventory (no duplicate submission).
+    2. Else look it up across free public product databases (Open Food Facts →
+       Open Beauty Facts → Open Products Facts → optional UPCitemdb) and return
+       a `prefill` for the submission form.
+    3. Nothing found → `prefill: null` — the owner fills the form manually.
+    """
+    from services.barcode_lookup import lookup_barcode as external_lookup
+
+    clean = code.strip()
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM catalog_items WHERE barcode = $1 AND barcode <> ''", clean)
+    if row:
+        return {"found_in_catalog": True, "item": dict(row)}
+
+    prefill = await external_lookup(clean)
+    return {
+        "found_in_catalog": False,
+        "prefill": prefill,
+        "source": (prefill or {}).get("source"),
+    }
+
+
 @router.get("/marketplaces")
 async def get_marketplaces():
     """DB-driven marketplace verticals (admin-configurable). Falls back to the

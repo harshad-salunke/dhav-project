@@ -1,14 +1,16 @@
 -- ============================================================================
 -- DHAV — FULL DATABASE SCHEMA (single source of truth, current state)
 -- ============================================================================
--- This ONE file recreates the ENTIRE schema as it exists today. It already
--- includes every column added by later migrations, so it is equivalent to
--- running 001 + 003 + 004 together.
+-- This ONE file recreates the ENTIRE schema as it exists today. Every column
+-- added by later numbered migrations is already folded in.
 --
 -- USE THIS WHEN:  you wiped the database (test mode) and want everything back.
---   1. Run THIS file  (creates all tables + indexes)
---   2. Run 005_seed_marketplace.sql  (fills the 4 marketplaces with demo data)
---   That's it — you do NOT also need 001 / 003 / 004 (they're folded in here).
+--   → Use the data_init/ folder (00_create_tables.sql is a copy of this file,
+--     followed by 01..07 seed files). See data_init/README.md for the order.
+--
+-- RULE for new schema changes: add a numbered migration 0NN_*.sql (for the
+-- live DB) AND fold the same DDL into THIS file, then re-run
+-- scripts/build_seed.py so data_init/00_create_tables.sql picks it up.
 --
 -- Everything is IF NOT EXISTS / ADD COLUMN IF NOT EXISTS, so running it on a DB
 -- that already has these tables is harmless (it just fills any gaps).
@@ -105,6 +107,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     group_id         TEXT,                          -- SKU family: unit-variants (10kg/5kg/1kg) share this
     rating           FLOAT DEFAULT 0,               -- avg product rating
     rating_count     INT   DEFAULT 0,               -- number of ratings
+    barcode          TEXT DEFAULT '',               -- EAN/UPC — dedup key for scanned products (see 014)
     created_at       BIGINT DEFAULT 0,
     updated_at       BIGINT
 );
@@ -115,6 +118,13 @@ CREATE INDEX IF NOT EXISTS idx_catalog_marketplace ON catalog_items(marketplace_
 CREATE INDEX IF NOT EXISTS idx_catalog_category_id ON catalog_items(category_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_subcategory ON catalog_items(subcategory_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_group       ON catalog_items(group_id);
+-- Same physical product can never enter the catalog twice (see 014).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_barcode
+    ON catalog_items (barcode) WHERE barcode <> '';
+-- Typo-tolerant search via trigram similarity (see 015). pg_trgm ships with Supabase.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_catalog_name_trgm  ON catalog_items USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_catalog_brand_trgm ON catalog_items USING gin (brand gin_trgm_ops);
 
 
 -- ── categories (admin-managed, DB-driven taxonomy) ──────────────────────────
@@ -131,6 +141,9 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE INDEX IF NOT EXISTS idx_categories_market  ON categories(marketplace_type, sort_order);
 CREATE INDEX IF NOT EXISTS idx_categories_enabled ON categories(is_enabled);
+-- No duplicate category names within one marketplace (case-insensitive, see 013).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_market_name
+    ON categories (marketplace_type, lower(name));
 
 
 -- ── subcategories (admin-managed, parent = categories.id) ───────────────────
@@ -149,6 +162,9 @@ CREATE TABLE IF NOT EXISTS subcategories (
 CREATE INDEX IF NOT EXISTS idx_subcategories_cat     ON subcategories(category_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_subcategories_market  ON subcategories(marketplace_type);
 CREATE INDEX IF NOT EXISTS idx_subcategories_enabled ON subcategories(is_enabled);
+-- No duplicate subcategory names within one parent category (see 013).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subcategories_cat_name
+    ON subcategories (category_id, lower(name));
 
 
 -- ── marketplaces (admin-configurable verticals; DB-driven tabs/theme) ────────
@@ -199,9 +215,10 @@ CREATE TABLE IF NOT EXISTS orders (
     total_product_amount     FLOAT DEFAULT 0,
     delivery_fee             FLOAT DEFAULT 0,
     total_customer_amount    FLOAT DEFAULT 0,
-    platform_fee_percentage  FLOAT DEFAULT 5.0,
-    platform_fee_amount      FLOAT DEFAULT 0,
+    platform_fee_percentage  FLOAT DEFAULT 0,         -- legacy 5% model; new orders write 0
+    platform_fee_amount      FLOAT DEFAULT 0,         -- flat ₹ platform fee (see 012)
     platform_fee_settled     BOOLEAN DEFAULT false,
+    settlement_id            TEXT,                    -- which settlement swept this order (NULL = unsettled, see 012)
     payment_method           TEXT DEFAULT 'cod',
     broadcast_wave           INT DEFAULT 0,
     broadcast_radius_km      FLOAT DEFAULT 0,
@@ -230,6 +247,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer     ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_store        ON orders(accepted_by_store_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status       ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_delivery_boy ON orders(assigned_delivery_boy_id);
+CREATE INDEX IF NOT EXISTS idx_orders_unsettled    ON orders(accepted_by_store_id)
+    WHERE status = 'delivered' AND settlement_id IS NULL;
 
 
 -- ── delivery_boys ───────────────────────────────────────────────────────────
@@ -320,20 +339,36 @@ CREATE TABLE IF NOT EXISTS admin_users (
 );
 
 
--- ── custom_item_requests (store asks admin to add a product) ────────────────
+-- ── custom_item_requests (store submits a product → admin approves/rejects) ──
+-- Upgraded by 014 from a bare "please add X" note into a full submission with
+-- barcode, images, pricing and taxonomy. status: pending → approved | rejected.
 CREATE TABLE IF NOT EXISTS custom_item_requests (
-    id               TEXT PRIMARY KEY,
-    store_id         TEXT,
-    requested_by_uid TEXT,
-    name             TEXT,
-    name_hindi       TEXT DEFAULT '',
-    name_marathi     TEXT DEFAULT '',
-    category         TEXT,
-    unit             TEXT,
-    price            FLOAT DEFAULT 0,
-    notes            TEXT DEFAULT '',
-    status           TEXT DEFAULT 'pending',
-    created_at       BIGINT DEFAULT 0
+    id                  TEXT PRIMARY KEY,
+    store_id            TEXT,
+    requested_by_uid    TEXT,
+    name                TEXT,
+    name_hindi          TEXT DEFAULT '',
+    name_marathi        TEXT DEFAULT '',
+    category            TEXT,                -- legacy free-text label (display)
+    unit                TEXT,
+    price               FLOAT DEFAULT 0,     -- selling price proposed by the store
+    notes               TEXT DEFAULT '',
+    status              TEXT DEFAULT 'pending',
+    barcode             TEXT DEFAULT '',
+    brand               TEXT DEFAULT '',
+    description         TEXT DEFAULT '',
+    mrp                 FLOAT DEFAULT 0,
+    images              JSONB DEFAULT '[]',  -- store-owner photos (Supabase URLs, ≤3)
+    external_image_urls JSONB DEFAULT '[]',  -- barcode-API images; sideloaded on approve
+    specs               JSONB DEFAULT '{}',  -- ingredients/allergens/nutrition from the barcode API
+    marketplace_type    TEXT DEFAULT 'grocery',
+    category_id         TEXT,
+    subcategory_id      TEXT,
+    rejection_reason    TEXT DEFAULT '',
+    reviewed_by         TEXT,                -- admin uid
+    reviewed_at         BIGINT,
+    catalog_item_id     TEXT,                -- set on approve (new or linked item)
+    created_at          BIGINT DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_custom_requests_store  ON custom_item_requests(store_id);
@@ -424,7 +459,27 @@ ALTER TABLE orders        ADD COLUMN IF NOT EXISTS gstin                 TEXT  D
 ALTER TABLE orders        ADD COLUMN IF NOT EXISTS donation_amount       FLOAT DEFAULT 0;
 ALTER TABLE orders        ADD COLUMN IF NOT EXISTS handling_charge       FLOAT DEFAULT 0;
 ALTER TABLE orders        ADD COLUMN IF NOT EXISTS delivery_instructions JSONB DEFAULT '[]';
+ALTER TABLE orders        ADD COLUMN IF NOT EXISTS settlement_id         TEXT;
+ALTER TABLE orders        ADD COLUMN IF NOT EXISTS last_lat              DOUBLE PRECISION;
+ALTER TABLE orders        ADD COLUMN IF NOT EXISTS last_lng              DOUBLE PRECISION;
+ALTER TABLE orders        ADD COLUMN IF NOT EXISTS last_location_at      TIMESTAMPTZ;
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS barcode          TEXT DEFAULT '';
+ALTER TABLE custom_item_requests
+    ADD COLUMN IF NOT EXISTS barcode             TEXT  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS brand               TEXT  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS description         TEXT  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS mrp                 FLOAT DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS images              JSONB DEFAULT '[]',
+    ADD COLUMN IF NOT EXISTS external_image_urls JSONB DEFAULT '[]',
+    ADD COLUMN IF NOT EXISTS specs               JSONB DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS marketplace_type    TEXT  DEFAULT 'grocery',
+    ADD COLUMN IF NOT EXISTS category_id         TEXT,
+    ADD COLUMN IF NOT EXISTS subcategory_id      TEXT,
+    ADD COLUMN IF NOT EXISTS rejection_reason    TEXT  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reviewed_by         TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_at         BIGINT,
+    ADD COLUMN IF NOT EXISTS catalog_item_id     TEXT;
 -- ============================================================================
--- END OF SCHEMA. Next: run 005_seed_marketplace.sql to populate the catalog,
--- then 007_variants_ratings_checkout.sql for demo ratings (or it's folded here).
+-- END OF SCHEMA. Next: run data_init/01_taxonomy.sql .. 07_customers.sql to
+-- populate the catalog (products carry group_id variants + demo ratings).
 -- ============================================================================
